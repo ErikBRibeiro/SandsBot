@@ -110,13 +110,13 @@ quantidade = 0  # Quantidade de BTC comprada/vendida na transação
 entry_price = 0  # Preço de entrada
 
 # Revisão na lógica de tendência para evitar inversões incorretas
-for i in range(len(df)):
+for i in range(adxLength, len(df)):  # Certifique-se de começar o loop a partir do período mínimo necessário para o ADX
     adjusted_timestamp = timestamp[i]
 
     # Pegando valores calculados do ADX e DI pelo Backtrader
-    adx_value = strategy_instance.adx_indicator.adx[i]
-    plus_di_value = strategy_instance.adx_indicator.plus_di[i]
-    minus_di_value = strategy_instance.adx_indicator.minus_di[i]
+    adx_value = strategy_instance.adx_indicator.adx[i - adxLength]  # Ajustar índice para evitar estouro
+    plus_di_value = strategy_instance.adx_indicator.plus_di[i - adxLength]
+    minus_di_value = strategy_instance.adx_indicator.minus_di[i - adxLength]
 
     # Condições de mercado em tendência (baseadas no ADX com threshold de 25)
     trendingMarket = adx_value > adx_threshold_value
