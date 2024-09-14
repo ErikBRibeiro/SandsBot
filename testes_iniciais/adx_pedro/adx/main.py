@@ -22,7 +22,7 @@ if __name__ == '__main__':
     cerebro = bt.Cerebro()
 
     data = bt.feeds.GenericCSVData(
-        dataname="bybit.csv",
+        dataname="testes_iniciais/adx_pedro/adx/bybit.csv",
         fromdate=datetime(2024, 1, 1),
         todate=datetime(2024, 9, 13),
         nullvalue=0.0,
