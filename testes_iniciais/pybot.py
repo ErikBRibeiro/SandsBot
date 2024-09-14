@@ -156,7 +156,7 @@ for i in range(len(df)):
 
     # Condições de mercado em tendência (não lateral)
     elif not isLateral:
-         if not position_open and longCondition:
+        if not position_open and longCondition:
             entry_price = close_price[i]
             quantidade = saldo / entry_price
             stopLossLong = entry_price * 0.92
