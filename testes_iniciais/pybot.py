@@ -1,6 +1,5 @@
 import pandas as pd
 import numpy as np
-from datetime import datetime, timedelta
 import talib
 import backtrader as bt
 
@@ -17,35 +16,17 @@ close_price = df['close']
 volume = df['Volume']
 
 # Parâmetros configuráveis
-emaShortLength = 11  # Período da EMA Curta
-emaLongLength = 55  # Período da EMA Longa
-rsiLength = 22  # Período do RSI
-macdShort = 15  # Período Curto MACD
-macdLong = 34  # Período Longo MACD
-macdSignal = 11  # Período de Sinal MACD
-adxLength = 16  # Período ADX (igual ao DI Length)
-bbLength = 14  # Período do Bollinger Bands
-bbMultiplier = 1.7  # Multiplicador do Bollinger Bands
-lateralThreshold = 0.005  # Limite de Lateralização
-adx_threshold_value = 25  # Valor padrão para ADX threshold
-
-# Funções para cálculo manual do MACD com talib
-def macd(series, fast_period, slow_period, signal_period):
-    ema_fast = talib.EMA(series, fast_period)
-    ema_slow = talib.EMA(series, slow_period)
-    macd_line = ema_fast - ema_slow
-    signal_line = talib.EMA(macd_line, signal_period)
-    macd_hist = macd_line - signal_line
-    return macd_line, signal_line, macd_hist
-
-# Cálculo do MACD com talib
-macdLine, signalLine, macdHist = macd(close_price, macdShort, macdLong, macdSignal)
-
-# Cálculo de outros indicadores com talib
-emaShort = talib.EMA(close_price, emaShortLength)
-emaLong = talib.EMA(close_price, emaLongLength)
-rsi = talib.RSI(close_price, timeperiod=rsiLength)
-upperBand, middleBand, lowerBand = talib.BBANDS(close_price, timeperiod=bbLength, nbdevup=bbMultiplier, nbdevdn=bbMultiplier, matype=0)
+emaShortLength = 11
+emaLongLength = 55
+rsiLength = 22
+macdShort = 15
+macdLong = 34
+macdSignal = 11
+adxLength = 16
+bbLength = 14
+bbMultiplier = 1.7
+lateralThreshold = 0.005
+adx_threshold_value = 25
 
 # Funções para detectar crossover e crossunder
 def crossover(series1, series2):
@@ -54,31 +35,42 @@ def crossover(series1, series2):
 def crossunder(series1, series2):
     return (series1 < series2) & (series1.shift(1) >= series2.shift(1))
 
-# Backtrader - usar ADX e DI's
-class ADXIndicator(bt.Indicator):
-    lines = ('adx', 'plus_di', 'minus_di',)
+# Função para cálculo manual do MACD com talib
+def macd(series, fast_period, slow_period, signal_period):
+    ema_fast = talib.EMA(series, fast_period)
+    ema_slow = talib.EMA(series, slow_period)
+    macd_line = ema_fast - ema_slow
+    signal_line = talib.EMA(macd_line, signal_period)
+    macd_hist = macd_line - signal_line
+    return macd_line, signal_line, macd_hist
 
+# Cálculo dos indicadores com talib
+macdLine, signalLine, macdHist = macd(close_price, macdShort, macdLong, macdSignal)
+emaShort = talib.EMA(close_price, emaShortLength)
+emaLong = talib.EMA(close_price, emaLongLength)
+rsi = talib.RSI(close_price, timeperiod=rsiLength)
+upperBand, middleBand, lowerBand = talib.BBANDS(close_price, timeperiod=bbLength, nbdevup=bbMultiplier, nbdevdn=bbMultiplier, matype=0)
+
+# Classe da estratégia usando Backtrader
+class ADXStrategy(bt.Strategy):
     def __init__(self):
         self.adx = bt.indicators.ADX(self.data, period=adxLength)
         self.plus_di = bt.indicators.PlusDI(self.data, period=adxLength)
         self.minus_di = bt.indicators.MinusDI(self.data, period=adxLength)
 
     def next(self):
-        # Usar os valores "atrasados" no cálculo para evitar atraso de 1 vela
-        self.lines.adx[0] = self.adx[-1]
-        self.lines.plus_di[0] = self.plus_di[-1]
-        self.lines.minus_di[0] = self.minus_di[-1]
+        # Verificar se há dados suficientes antes de acessar o valor do ADX
+        if len(self.data) < adxLength:
+            print(f"Data: {self.data.datetime.date(0)} - Não há dados suficientes para calcular o ADX")
+            return
 
-# Configurando a estratégia do Backtrader apenas para calcular o ADX e os DI's
-class ADXStrategy(bt.Strategy):
-    def __init__(self):
-        self.adx_indicator = ADXIndicator(self.data)
+        # Atualizar os valores do ADX e DI+ / DI- a cada iteração
+        adx_value = self.adx[0]
+        plus_di_value = self.plus_di[0]
+        minus_di_value = self.minus_di[0]
 
-    def next(self):
-        # Acessar os valores ajustados de ADX, DI+ e DI-
-        self.adx_value = self.adx_indicator.adx[0]
-        self.plus_di_value = self.adx_indicator.plus_di[0]
-        self.minus_di_value = self.adx_indicator.minus_di[0]
+        print(f"Data: {self.data.datetime.date(0)}")
+        print(f"ADX: {adx_value}, DI+: {plus_di_value}, DI-: {minus_di_value}")
 
 # Alimentar o DataFrame no Backtrader
 data_feed = bt.feeds.PandasData(
@@ -88,7 +80,8 @@ data_feed = bt.feeds.PandasData(
     high='high',
     low='low',
     close='close',
-    volume='Volume'
+    volume='Volume',
+    openinterest=-1
 )
 
 # Configurar o cerebro para rodar a estratégia do Backtrader
@@ -97,28 +90,40 @@ cerebro.adddata(data_feed)
 cerebro.addstrategy(ADXStrategy)
 cerebro.broker.set_cash(1000000)
 
-# Rodar a estratégia do Backtrader para calcular ADX e DI's
+# Rodar a estratégia do Backtrader
 strategy_instance = cerebro.run()[0]
+
+# Calcula o número mínimo de períodos necessários
+min_periods = max(emaLongLength, rsiLength, macdLong, bbLength, adxLength)
 
 # Loop para verificar e executar as ordens
 orders = []
 trade_count = 0
-saldo = 1_000_000  # Saldo inicial de 1.000.000
-position_open = False  # Indica se estamos em uma transação
-current_position = None  # 'long' ou 'short'
-quantidade = 0  # Quantidade de BTC comprada/vendida na transação
-entry_price = 0  # Preço de entrada
+saldo = 1_000_000
+position_open = False
+current_position = None
+quantidade = 0
+entry_price = 0
 
-# Revisão na lógica de tendência para evitar inversões incorretas
-for i in range(adxLength, len(df)):  # Certifique-se de começar o loop a partir do período mínimo necessário para o ADX
+for i in range(len(df)):
     adjusted_timestamp = timestamp[i]
 
-    # Pegando valores calculados do ADX e DI pelo Backtrader
-    adx_value = strategy_instance.adx_indicator.adx[i - adxLength]  # Ajustar índice para evitar estouro
-    plus_di_value = strategy_instance.adx_indicator.plus_di[i - adxLength]
-    minus_di_value = strategy_instance.adx_indicator.minus_di[i - adxLength]
+    # Cheque para evitar 'IndexError'
+    if i < min_periods:
+        print(f"Vela: {adjusted_timestamp} - Não há dados suficientes para cálculos de indicadores")
+        continue
 
-    # Condições de mercado em tendência (baseadas no ADX com threshold de 25)
+    # Verificação de índice seguro para o Backtrader
+    try:
+        # Acessa os valores do ADX de forma segura
+        adx_value = strategy_instance.adx[0]
+        plus_di_value = strategy_instance.plus_di[0]
+        minus_di_value = strategy_instance.minus_di[0]
+    except IndexError:
+        print(f"Vela: {adjusted_timestamp} - Índice fora do intervalo dos dados de Backtrader.")
+        continue
+
+    # Condições de mercado em tendência
     trendingMarket = adx_value > adx_threshold_value
 
     # Condições de lateralização com Bollinger Bands
@@ -131,7 +136,7 @@ for i in range(adxLength, len(df)):  # Certifique-se de começar o loop a partir
     # Condição Short
     shortCondition = (crossunder(emaShort, emaLong)[i]) & (rsi[i] > 40) & (macdHist[i] < -0.5) & trendingMarket
 
-    # Exibir os valores dos indicadores manuais para cada vela
+    # Exibir os valores dos indicadores
     print(f"Vela: {adjusted_timestamp}")
     print(f"EMA Curta: {emaShort[i]}, EMA Longa: {emaLong[i]}")
     print(f"RSI: {rsi[i]}")
@@ -181,52 +186,29 @@ for i in range(adxLength, len(df)):  # Certifique-se de começar o loop a partir
             position_open = True
             current_position = 'short'
             trade_count += 1
+    # Controle de fechamento de posições
+    if position_open:
+        # Estratégia de saída para posições LONG
+        if current_position == 'long':
+            if close_price[i] >= takeProfitLong or close_price[i] <= stopLossLong:
+                orders.append(f"fechar transação (long) em {adjusted_timestamp} com preço {close_price[i]}")
+                position_open = False
+                current_position = None
 
-    # Saída para long
-    if position_open and current_position == 'long':
-        if low_price[i] <= stopLossLong:
-            saldo = quantidade * stopLossLong
-            orders.append(f"sair de transação (long) em {adjusted_timestamp} com preço {stopLossLong} (Stoploss), saldo atualizado: {saldo:.2f}")
-            position_open = False
-        elif high_price[i] >= takeProfitLong:
-            saldo = quantidade * takeProfitLong
-            orders.append(f"sair de transação (long) em {adjusted_timestamp} com preço {takeProfitLong} (Take Profit), saldo atualizado: {saldo:.2f}")
-            position_open = False
-        elif shortCondition:
-            saldo = quantidade * close_price[i]
-            orders.append(f"sair de transação (long) em {adjusted_timestamp} com preço {close_price[i]} (Inversão para Short), saldo atualizado: {saldo:.2f}")
-            entry_price = close_price[i]
-            quantidade = saldo / entry_price
-            stopLossShort = entry_price * 1.12
-            takeProfitShort = entry_price * 0.77
-            orders.append(f"entrar em transação (short) em {adjusted_timestamp} com preço {entry_price}, Stop Loss: {stopLossShort}, Take Profit: {takeProfitShort}")
-            current_position = 'short'
-            trade_count += 1
+        # Estratégia de saída para posições SHORT
+        elif current_position == 'short':
+            if close_price[i] <= takeProfitShort or close_price[i] >= stopLossShort:
+                orders.append(f"fechar transação (short) em {adjusted_timestamp} com preço {close_price[i]}")
+                position_open = False
+                current_position = None
 
-    # Saída para short
-    elif position_open and current_position == 'short':
-        if high_price[i] >= stopLossShort:
-            saldo = saldo - (quantidade * (stopLossShort - entry_price))
-            orders.append(f"sair de transação (short) em {adjusted_timestamp} com preço {stopLossShort} (Stoploss), saldo atualizado: {saldo:.2f}")
-            position_open = False
-        elif low_price[i] <= takeProfitShort:
-            saldo = saldo + (quantidade * (entry_price - takeProfitShort))
-            orders.append(f"sair de transação (short) em {adjusted_timestamp} com preço {takeProfitShort} (Take Profit), saldo atualizado: {saldo:.2f}")
-            position_open = False
-        elif longCondition:
-            saldo = saldo + (quantidade * (entry_price - close_price[i]))
-            orders.append(f"sair de transação (short) em {adjusted_timestamp} com preço {close_price[i]} (Inversão para Long), saldo atualizado: {saldo:.2f}")
-            entry_price = close_price[i]
-            quantidade = saldo / entry_price
-            stopLossLong = entry_price * 0.92
-            takeProfitLong = entry_price * 1.32
-            orders.append(f"entrar em transação (long) em {adjusted_timestamp} com preço {entry_price}, Stop Loss: {stopLossLong}, Take Profit: {takeProfitLong}")
-            current_position = 'long'
-            trade_count += 1
-
-# Exibir as ordens geradas
+# Exibe as ordens geradas
+print("Ordens geradas:")
 for order in orders:
     print(order)
 
-# Exibir o número total de trades
-print(f"Total de trades: {trade_count}")
+# Resumo de negociação
+print("-" * 50)
+print(f"Total de trades executados: {trade_count}")
+print(f"Saldo final: {saldo:.2f}")
+print("-" * 50)
