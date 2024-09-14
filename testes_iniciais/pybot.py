@@ -98,6 +98,11 @@ entry_price = 0
 for i in range(len(df)):
     adjusted_timestamp = timestamp[i]
 
+    # Cheque para evitar 'IndexError'
+    if i < max(emaLongLength, rsiLength, macdLong, bbLength, adxLength):
+        print(f"Vela: {adjusted_timestamp} - Não há dados suficientes para cálculos de indicadores")
+        continue
+
     # Pegando valores calculados do ADX e DI pelo Backtrader
     adx_value = strategy_instance.adx[i]
     plus_di_value = strategy_instance.plus_di[i]
