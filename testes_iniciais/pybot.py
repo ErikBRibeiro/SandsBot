@@ -24,10 +24,10 @@ macdShort = 15  # Período Curto MACD
 macdLong = 34  # Período Longo MACD
 macdSignal = 11  # Período de Sinal MACD
 adxLength = 16  # Período ADX (igual ao DI Length)
-adxThreshold = 12  # Nível de ADX para indicar tendência
 bbLength = 14  # Período do Bollinger Bands
 bbMultiplier = 1.7  # Multiplicador do Bollinger Bands
 lateralThreshold = 0.005  # Limite de Lateralização
+adx_threshold_value = 25  # Valor padrão para ADX threshold
 
 # Funções para cálculo manual do MACD com talib
 def macd(series, fast_period, slow_period, signal_period):
@@ -111,8 +111,8 @@ for i in range(len(df)):
     plus_di_value = strategy_instance.adx_indicator.plus_di[i]
     minus_di_value = strategy_instance.adx_indicator.minus_di[i]
 
-    # Condições de mercado em tendência (baseadas no ADX)
-    trendingMarket = adx_value > adxThreshold
+    # Condições de mercado em tendência (baseadas no ADX com threshold de 25)
+    trendingMarket = adx_value > adx_threshold_value
 
     # Condições de lateralização com Bollinger Bands
     bandWidth = (upperBand[i] - lowerBand[i]) / middleBand[i]
