@@ -1,5 +1,6 @@
 import pandas as pd
 import talib
+import numpy as np
 import backtrader as bt
 from datetime import datetime
 
@@ -35,7 +36,9 @@ class MyStrategy(bt.Strategy):
     )
 
     def __init__(self):
-        # Calcular os indicadores usando TA-Lib
+        # Calcular os indicadores usando TA-Lib e numpy arrays
+        close_prices = np.array(self.data.close.get(size=len(self.data)))
+
         self.ema_short = bt.indicators.EMA(self.data.close, period=self.params.ema_short_length)
         self.ema_long = bt.indicators.EMA(self.data.close, period=self.params.ema_long_length)
         self.rsi = bt.indicators.RSI(self.data.close, period=self.params.rsi_length)
@@ -49,9 +52,9 @@ class MyStrategy(bt.Strategy):
         self.plus_di = bt.indicators.PlusDI(self.data, period=self.params.adx_length)
         self.minus_di = bt.indicators.MinusDI(self.data, period=self.params.adx_length)
 
-        # Bollinger Bands usando TA-Lib
+        # Bollinger Bands usando TA-Lib com numpy array
         self.bbands_upper, self.bbands_middle, self.bbands_lower = talib.BBANDS(
-            self.data.close, 
+            close_prices,
             timeperiod=self.params.bb_length, 
             nbdevup=self.params.bb_multiplier, 
             nbdevdn=self.params.bb_multiplier, 
@@ -62,7 +65,7 @@ class MyStrategy(bt.Strategy):
 
     def next(self):
         # Condição para mercado em lateralização
-        band_width = (self.bbands_upper - self.bbands_lower) / self.bbands_middle
+        band_width = (self.bbands_upper[-1] - self.bbands_lower[-1]) / self.bbands_middle[-1]
         is_lateral = band_width < self.params.lateral_threshold
 
         # Valores de stoploss e takeprofit baseados no estado do mercado
