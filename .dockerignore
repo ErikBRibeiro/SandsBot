@@ -1,9 +1,10 @@
 *
+!src
+!testes_iniciais
 !config.py
 !data_interface.py
 !main_loop.py
 !metrics.py
 !requirements.txt
-!src
 !strategy.py
 !utils.py
