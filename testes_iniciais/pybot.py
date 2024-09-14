@@ -101,6 +101,7 @@ saldo = 1_000_000  # Saldo inicial de 1.000.000
 position_open = False  # Indica se estamos em uma transação
 current_position = None  # 'long' ou 'short'
 quantidade = 0  # Quantidade de BTC comprada/vendida na transação
+entry_price = 0  # Preço de entrada
 
 # Revisão na lógica de tendência para evitar inversões incorretas
 for i in range(len(df)):
@@ -173,6 +174,48 @@ for i in range(len(df)):
             orders.append(f"entrar em transação (short) em {adjusted_timestamp} com preço {entry_price}, Stop Loss: {stopLossShort}, Take Profit: {takeProfitShort}")
             position_open = True
             current_position = 'short'
+            trade_count += 1
+
+    # Saída para long
+    if position_open and current_position == 'long':
+        if low_price[i] <= stopLossLong:
+            saldo = quantidade * stopLossLong
+            orders.append(f"sair de transação (long) em {adjusted_timestamp} com preço {stopLossLong} (Stoploss), saldo atualizado: {saldo:.2f}")
+            position_open = False
+        elif high_price[i] >= takeProfitLong:
+            saldo = quantidade * takeProfitLong
+            orders.append(f"sair de transação (long) em {adjusted_timestamp} com preço {takeProfitLong} (Take Profit), saldo atualizado: {saldo:.2f}")
+            position_open = False
+        elif shortCondition:
+            saldo = quantidade * close_price[i]
+            orders.append(f"sair de transação (long) em {adjusted_timestamp} com preço {close_price[i]} (Inversão para Short), saldo atualizado: {saldo:.2f}")
+            entry_price = close_price[i]
+            quantidade = saldo / entry_price
+            stopLossShort = entry_price * 1.12
+            takeProfitShort = entry_price * 0.77
+            orders.append(f"entrar em transação (short) em {adjusted_timestamp} com preço {entry_price}, Stop Loss: {stopLossShort}, Take Profit: {takeProfitShort}")
+            current_position = 'short'
+            trade_count += 1
+
+    # Saída para short
+    elif position_open and current_position == 'short':
+        if high_price[i] >= stopLossShort:
+            saldo = saldo - (quantidade * (stopLossShort - entry_price))
+            orders.append(f"sair de transação (short) em {adjusted_timestamp} com preço {stopLossShort} (Stoploss), saldo atualizado: {saldo:.2f}")
+            position_open = False
+        elif low_price[i] <= takeProfitShort:
+            saldo = saldo + (quantidade * (entry_price - takeProfitShort))
+            orders.append(f"sair de transação (short) em {adjusted_timestamp} com preço {takeProfitShort} (Take Profit), saldo atualizado: {saldo:.2f}")
+            position_open = False
+        elif longCondition:
+            saldo = saldo + (quantidade * (entry_price - close_price[i]))
+            orders.append(f"sair de transação (short) em {adjusted_timestamp} com preço {close_price[i]} (Inversão para Long), saldo atualizado: {saldo:.2f}")
+            entry_price = close_price[i]
+            quantidade = saldo / entry_price
+            stopLossLong = entry_price * 0.92
+            takeProfitLong = entry_price * 1.32
+            orders.append(f"entrar em transação (long) em {adjusted_timestamp} com preço {entry_price}, Stop Loss: {stopLossLong}, Take Profit: {takeProfitLong}")
+            current_position = 'long'
             trade_count += 1
 
 # Exibir as ordens geradas
