@@ -13,6 +13,9 @@ class ADXStrategy(bt.Strategy):
         self.di_minus = bt.indicators.MinusDI(self.data, period=self.adx_period)
 
     def next(self):
+        # Print the ADX, DI+ and DI- values for each candle
+        print(f"Date: {self.data.datetime.date(0)}, ADX: {self.adx[0]:.2f}, DI+: {self.di_plus[0]:.2f}, DI-: {self.di_minus[0]:.2f}")
+
         if self.adx > self.adx_threshold and self.di_plus > self.di_minus:
             self.buy()
         elif self.adx > self.adx_threshold_sell and self.di_minus > self.di_plus:
