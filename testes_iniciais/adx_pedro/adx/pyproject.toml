@@ -1,0 +1,17 @@
+[tool.poetry]
+name = "adx"
+version = "0.1.0"
+description = ""
+authors = ["Pedro Henrique Garcia <pedro@projetodigital.com.br>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.10"
+setuptools = "^74.1.2"
+matplotlib = "^3.9.2"
+backtrader = "^1.9.78.123"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
