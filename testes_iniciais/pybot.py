@@ -85,6 +85,9 @@ cerebro.broker.set_cash(1000000)
 # Rodar a estratégia do Backtrader
 strategy_instance = cerebro.run()[0]
 
+# Calcula o número mínimo de períodos necessários
+min_periods = max(emaLongLength, rsiLength, macdLong, bbLength, adxLength)
+
 # Loop para verificar e executar as ordens
 orders = []
 trade_count = 0
@@ -99,14 +102,18 @@ for i in range(len(df)):
     adjusted_timestamp = timestamp[i]
 
     # Cheque para evitar 'IndexError'
-    if i < max(emaLongLength, rsiLength, macdLong, bbLength, adxLength):
+    if i < min_periods:
         print(f"Vela: {adjusted_timestamp} - Não há dados suficientes para cálculos de indicadores")
         continue
 
     # Pegando valores calculados do ADX e DI pelo Backtrader
-    adx_value = strategy_instance.adx[i]
-    plus_di_value = strategy_instance.plus_di[i]
-    minus_di_value = strategy_instance.minus_di[i]
+    try:
+        adx_value = strategy_instance.adx[i]
+        plus_di_value = strategy_instance.plus_di[i]
+        minus_di_value = strategy_instance.minus_di[i]
+    except IndexError:
+        print(f"Vela: {adjusted_timestamp} - Índice fora do intervalo dos dados de Backtrader.")
+        continue
 
     # Condições de mercado em tendência
     trendingMarket = adx_value > adx_threshold_value
