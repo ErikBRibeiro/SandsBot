@@ -65,38 +65,50 @@ class MyStrategy(bt.Strategy):
         band_width = (self.bbands_upper - self.bbands_lower) / self.bbands_middle
         is_lateral = band_width < self.params.lateral_threshold
 
+        # Valores de stoploss e takeprofit baseados no estado do mercado
+        if is_lateral:
+            stop_loss_long = self.data.close[0] * 0.973
+            take_profit_long = self.data.close[0] * 1.11
+            stop_loss_short = self.data.close[0] * 1.09
+            take_profit_short = self.data.close[0] * 0.973
+        else:
+            stop_loss_long = self.data.close[0] * 0.92
+            take_profit_long = self.data.close[0] * 1.32
+            stop_loss_short = self.data.close[0] * 1.12
+            take_profit_short = self.data.close[0] * 0.77
+
         # Definir as condições para entrar em long e short
         if not self.position_open:
             if self.adx > self.params.adx_threshold and self.plus_di > self.minus_di and self.macd.macd > self.macd.signal and self.rsi < 60:
                 # Condição de compra (long)
                 self.buy()
-                print(f"Comprar Long em {self.data.datetime.date(0)} {self.data.datetime.time(0)} com preço {self.data.close[0]}")
+                print(f"Comprar Long em {self.data.datetime.date(0)} {self.data.datetime.time(0)} com preço {self.data.close[0]}, Stop Loss: {stop_loss_long}, Take Profit: {take_profit_long}")
                 self.position_open = True
 
             elif self.adx > self.params.adx_threshold and self.minus_di > self.plus_di and self.macd.macd < self.macd.signal and self.rsi > 40:
                 # Condição de venda (short)
                 self.sell()
-                print(f"Vender Short em {self.data.datetime.date(0)} {self.data.datetime.time(0)} com preço {self.data.close[0]}")
+                print(f"Vender Short em {self.data.datetime.date(0)} {self.data.datetime.time(0)} com preço {self.data.close[0]}, Stop Loss: {stop_loss_short}, Take Profit: {take_profit_short}")
                 self.position_open = True
 
         # Saída de uma posição long
         elif self.position and self.position.size > 0:
-            if self.data.low[0] < self.position.price * 0.92:  # Stoploss
+            if self.data.low[0] < stop_loss_long:  # Stoploss
                 self.close()
                 print(f"Sair de Long (Stoploss) em {self.data.datetime.date(0)} {self.data.datetime.time(0)} com preço {self.data.close[0]}")
                 self.position_open = False
-            elif self.data.high[0] > self.position.price * 1.32:  # Takeprofit
+            elif self.data.high[0] > take_profit_long:  # Takeprofit
                 self.close()
                 print(f"Sair de Long (Takeprofit) em {self.data.datetime.date(0)} {self.data.datetime.time(0)} com preço {self.data.close[0]}")
                 self.position_open = False
 
         # Saída de uma posição short
         elif self.position and self.position.size < 0:
-            if self.data.high[0] > self.position.price * 1.12:  # Stoploss
+            if self.data.high[0] > stop_loss_short:  # Stoploss
                 self.close()
                 print(f"Sair de Short (Stoploss) em {self.data.datetime.date(0)} {self.data.datetime.time(0)} com preço {self.data.close[0]}")
                 self.position_open = False
-            elif self.data.low[0] < self.position.price * 0.77:  # Takeprofit
+            elif self.data.low[0] < take_profit_short:  # Takeprofit
                 self.close()
                 print(f"Sair de Short (Takeprofit) em {self.data.datetime.date(0)} {self.data.datetime.time(0)} com preço {self.data.close[0]}")
                 self.position_open = False
@@ -105,7 +117,7 @@ class MyStrategy(bt.Strategy):
 cerebro = bt.Cerebro()
 cerebro.adddata(data_feed)
 cerebro.addstrategy(MyStrategy)
-cerebro.broker.setcash(1000000)
+cerebro.broker.set_cash(1000000)
 
 # Rodar a estratégia
 cerebro.run()
