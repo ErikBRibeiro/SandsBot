@@ -1,0 +1,11 @@
+# IDE files
+/.idea
+/.virtual_documents
+.ipynb_checkpoints
+/.tmp
+
+# Environment variables
+.env
+
+# Byte-compiled / optimized / DLL files
+__pycache__/

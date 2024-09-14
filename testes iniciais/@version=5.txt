@@ -1,0 +1,99 @@
+//@version=5
+strategy("Ribeiro's Trading Bot", overlay=true)
+
+// Parâmetros de Entrada para Ajuste
+emaShortLength = input.int(11, minval=1, title="Período da EMA Curta")
+emaLongLength = input.int(55, minval=1, title="Período da EMA Longa")
+rsiLength = input.int(22, minval=1, title="Período do RSI")
+macdShort = input.int(15, title="Período Curto MACD")
+macdLong = input.int(34, title="Período Longo MACD")
+macdSignal = input.int(11, title="Período de Sinal MACD")
+adxThreshold = input.float(12, title="Nível de ADX") 
+bbLength = input.int(14, title="Período do Bollinger Bands")
+bbMultiplier = input.float(1.7, title="Multiplicador do Bollinger Bands")
+lateralThreshold = input.float(0.005, title="Limite de Lateralização (Distância entre as Bandas)")
+
+// Parâmetros para Stop Loss e Take Profit em mercado lateral
+stopLossLateralLong = input.float(0.973, title="Stop Loss Lateral para Long (em % do preço médio de entrada)")
+takeProfitLateralLong = input.float(1.11, title="Take Profit Lateral para Long (em % do preço médio de entrada)")
+stopLossLateralShort = input.float(1.09, title="Stop Loss Lateral para Short (em % do preço médio de entrada)")
+takeProfitLateralShort = input.float(0.973, title="Take Profit Lateral para Short (em % do preço médio de entrada)")
+
+// Parâmetros para Stop Loss e Take Profit em mercado de tendência
+stopLossTrendingLong = input.float(0.92, title="Stop Loss Tendência para Long (em % do preço médio de entrada)")
+takeProfitTrendingLong = input.float(1.32, title="Take Profit Tendência para Long (em % do preço médio de entrada)")
+stopLossTrendingShort = input.float(1.12, title="Stop Loss Tendência para Short (em % do preço médio de entrada)")
+takeProfitTrendingShort = input.float(0.77, title="Take Profit Tendência para Short (em % do preço médio de entrada)")
+
+// Entrada de Parâmetros de Data
+startDate = input.time(timestamp("2020-01-01 00:00"), title="Data de Início")
+endDate = input.time(timestamp("2024-10-10 23:59"), title="Data de Fim")
+inDateRange = (time >= startDate and time <= endDate)
+
+// Configuração dos Indicadores com Parâmetros
+emaShort = ta.ema(close, emaShortLength)
+emaLong = ta.ema(close, emaLongLength)
+rsi = ta.rsi(close, rsiLength)
+
+// Cálculo do MACD
+[macdLine, signalLine, _] = ta.macd(close, macdShort, macdLong, macdSignal)
+macdHist = macdLine - signalLine
+
+// Cálculo do ADX para força da tendência
+len = input.int(16, minval=1, title="DI Length")
+lensig = input.int(13, title="ADX Smoothing", minval=1, maxval=50)
+[diplus, diminus, adxValue] = ta.dmi(len, lensig)
+
+// Configuração do Bollinger Bands
+basis = ta.sma(close, bbLength)
+dev = bbMultiplier * ta.stdev(close, bbLength)
+upperBand = basis + dev
+lowerBand = basis - dev
+
+// Detecção de Lateralização
+bandWidth = (upperBand - lowerBand) / basis
+isLateral = bandWidth < lateralThreshold
+
+// Ajuste para tendências fracas e volatilidade
+trendingMarket = adxValue > adxThreshold
+
+// Regras para operações normais (quando o mercado não está lateral)
+if (not isLateral) 
+    // Regras para operações longas
+    longCondition = ta.crossover(emaShort, emaLong) and rsi < 60 and inDateRange and macdHist > 0.5 and trendingMarket
+    if (longCondition)
+        strategy.entry("Long", strategy.long)
+
+    // Regras para operações curtas
+    shortCondition = ta.crossunder(emaShort, emaLong) and rsi > 40 and inDateRange and macdHist < -0.5 and trendingMarket
+    if (shortCondition)
+        strategy.entry("Short", strategy.short)
+
+    // Stop Loss e Take Profit para long e short em tendência
+    strategy.exit("Exit Long", from_entry="Long", stop=strategy.position_avg_price * stopLossTrendingLong, limit=strategy.position_avg_price * takeProfitTrendingLong)
+    strategy.exit("Exit Short", from_entry="Short", stop=strategy.position_avg_price * stopLossTrendingShort, limit=strategy.position_avg_price * takeProfitTrendingShort)
+
+// Estratégia de Mean Reversion para mercado lateral
+if (isLateral) 
+    // Operações de reversão para long quando o preço toca a banda inferior e volta
+    if (close < lowerBand and ta.crossover(close, lowerBand))
+        strategy.entry("Long", strategy.long)
+
+    // Operações de reversão para short quando o preço toca a banda superior e volta
+    if (close > upperBand and ta.crossunder(close, upperBand))
+        strategy.entry("Short", strategy.short)
+
+    // Stop Loss e Take Profit para long e short em mercado lateral
+    strategy.exit("Exit Long", from_entry="Long", stop=strategy.position_avg_price * stopLossLateralLong, limit=strategy.position_avg_price * takeProfitLateralLong)
+    strategy.exit("Exit Short", from_entry="Short", stop=strategy.position_avg_price * stopLossLateralShort, limit=strategy.position_avg_price * takeProfitLateralShort)
+
+// Plotar Bollinger Bands
+plot(upperBand, color=color.red, linewidth=1, title="Upper Band")
+plot(lowerBand, color=color.green, linewidth=1, title="Lower Band")
+
+// Plotar as EMAs no gráfico
+plot(emaShort, color=color.blue, linewidth=2, title="EMA Curta (21)")
+plot(emaLong, color=color.orange, linewidth=2, title="EMA Longa (55)")
+
+// Plotar Volume no gráfico
+plot(volume, color=color.purple, title="Volume")
