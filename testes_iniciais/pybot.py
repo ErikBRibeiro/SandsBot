@@ -114,9 +114,13 @@ for i in range(adxLength, len(df)):  # Certifique-se de começar o loop a partir
     adjusted_timestamp = timestamp[i]
 
     # Pegando valores calculados do ADX e DI pelo Backtrader
-    adx_value = strategy_instance.adx_indicator.adx[i - adxLength]  # Ajustar índice para evitar estouro
-    plus_di_value = strategy_instance.adx_indicator.plus_di[i - adxLength]
-    minus_di_value = strategy_instance.adx_indicator.minus_di[i - adxLength]
+    try:
+        adx_value = strategy_instance.adx_indicator.adx[i - adxLength]  # Ajustar índice para evitar estouro
+        plus_di_value = strategy_instance.adx_indicator.plus_di[i - adxLength]
+        minus_di_value = strategy_instance.adx_indicator.minus_di[i - adxLength]
+    except IndexError:
+        print(f"Índice fora do alcance na vela {adjusted_timestamp}, pulando...")
+        continue
 
     # Condições de mercado em tendência (baseadas no ADX com threshold de 25)
     trendingMarket = adx_value > adx_threshold_value
