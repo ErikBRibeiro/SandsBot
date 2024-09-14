@@ -59,7 +59,6 @@ class ADXStrategy(bt.Strategy):
         self.minus_di = bt.indicators.MinusDI(self.data, period=adxLength)
 
     def next(self):
-        # Acessar os valores dos indicadores
         self.adx_value = self.adx[0]
         self.plus_di_value = self.plus_di[0]
         self.minus_di_value = self.minus_di[0]
@@ -97,20 +96,19 @@ current_position = None
 quantidade = 0
 entry_price = 0
 
-# Revisão na lógica de tendência para evitar inversões incorretas
 for i in range(len(df)):
     adjusted_timestamp = timestamp[i]
 
     # Cheque para evitar 'IndexError'
-    if i < min_periods:
+    if i < min_periods or i >= len(strategy_instance.data):
         print(f"Vela: {adjusted_timestamp} - Não há dados suficientes para cálculos de indicadores")
         continue
 
     # Pegando valores calculados do ADX e DI pelo Backtrader
     try:
-        adx_value = strategy_instance.adx[i]
-        plus_di_value = strategy_instance.plus_di[i]
-        minus_di_value = strategy_instance.minus_di[i]
+        adx_value = strategy_instance.adx[i - min_periods]
+        plus_di_value = strategy_instance.plus_di[i - min_periods]
+        minus_di_value = strategy_instance.minus_di[i - min_periods]
     except IndexError:
         print(f"Vela: {adjusted_timestamp} - Índice fora do intervalo dos dados de Backtrader.")
         continue
