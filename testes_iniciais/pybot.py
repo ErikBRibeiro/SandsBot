@@ -100,15 +100,16 @@ for i in range(len(df)):
     adjusted_timestamp = timestamp[i]
 
     # Cheque para evitar 'IndexError'
-    if i < min_periods or i >= len(strategy_instance.data):
+    if i < min_periods:
         print(f"Vela: {adjusted_timestamp} - Não há dados suficientes para cálculos de indicadores")
         continue
 
-    # Pegando valores calculados do ADX e DI pelo Backtrader
+    # Verificação de índice seguro para o Backtrader
     try:
-        adx_value = strategy_instance.adx[i - min_periods]
-        plus_di_value = strategy_instance.plus_di[i - min_periods]
-        minus_di_value = strategy_instance.minus_di[i - min_periods]
+        # Ajuste de índice para a estratégia
+        adx_value = strategy_instance.adx[-1]
+        plus_di_value = strategy_instance.plus_di[-1]
+        minus_di_value = strategy_instance.minus_di[-1]
     except IndexError:
         print(f"Vela: {adjusted_timestamp} - Índice fora do intervalo dos dados de Backtrader.")
         continue
