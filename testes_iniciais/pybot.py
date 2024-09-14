@@ -51,6 +51,39 @@ emaShort = talib.EMA(close_price, emaShortLength)
 emaLong = talib.EMA(close_price, emaLongLength)
 rsi = talib.RSI(close_price, timeperiod=rsiLength)
 
+# Usar Backtrader apenas para calcular ADX e indicadores direcionais
+class ADXIndicator(bt.Indicator):
+    lines = ('adx', 'plus_di', 'minus_di',)
+
+    def __init__(self):
+        self.adx = bt.indicators.ADX(self.data, period=adxLength)
+        self.plus_di = bt.indicators.PlusDI(self.data, period=adxLength)
+        self.minus_di = bt.indicators.MinusDI(self.data, period=adxLength)
+
+# Alimentar o DataFrame no Backtrader
+data_feed = bt.feeds.PandasData(
+    dataname=df,
+    datetime='time',
+    open='open',
+    high='high',
+    low='low',
+    close='close',
+    volume='Volume'
+)
+
+# Configurando a estratégia do Backtrader apenas para calcular o ADX e os DI's
+class ADXStrategy(bt.Strategy):
+    def __init__(self):
+        self.adx_indicator = ADXIndicator(self.data)
+
+    def next(self):
+        # Exibir os valores calculados do ADX e DI+ e DI- para cada vela
+        print(f"Data: {self.data.datetime.date(0)} Time: {self.data.datetime.time(0)}")
+        print(f"ADX: {self.adx_indicator.adx[0]}")
+        print(f"DI+: {self.adx_indicator.plus_di[0]}, DI-: {self.adx_indicator.minus_di[0]}")
+        print("-" * 50)
+
+
 # Bollinger Bands (mantendo o cálculo via TA-Lib)
 upperBand, middleBand, lowerBand = talib.BBANDS(close_price, timeperiod=bbLength, nbdevup=bbMultiplier, nbdevdn=bbMultiplier, matype=0)
 
@@ -85,6 +118,46 @@ longCondition = (crossover(emaShort, emaLong)) & (rsi < 60) & (macdHist > 0.5) &
 # Condição Short
 shortCondition = (crossunder(emaShort, emaLong)) & (rsi > 40) & (macdHist < -0.5) & trendingMarket
 
+
+class ADXIndicator(bt.Indicator):
+    lines = ('adx', 'plus_di', 'minus_di',)
+
+    def __init__(self):
+        self.adx = bt.indicators.ADX(self.data, period=adxLength)
+        self.plus_di = bt.indicators.PlusDI(self.data, period=adxLength)
+        self.minus_di = bt.indicators.MinusDI(self.data, period=adxLength)
+
+# Alimentar o DataFrame no Backtrader
+data_feed = bt.feeds.PandasData(
+    dataname=df,
+    datetime='time',
+    open='open',
+    high='high',
+    low='low',
+    close='close',
+    volume='Volume'
+)
+
+# Configurando a estratégia do Backtrader apenas para calcular o ADX e os DI's
+class ADXStrategy(bt.Strategy):
+    def __init__(self):
+        self.adx_indicator = ADXIndicator(self.data)
+
+    def next(self):
+        # Exibir os valores calculados do ADX e DI+ e DI- para cada vela
+        print(f"Data: {self.data.datetime.date(0)} Time: {self.data.datetime.time(0)}")
+        print(f"ADX: {self.adx_indicator.adx[0]}")
+        print(f"DI+: {self.adx_indicator.plus_di[0]}, DI-: {self.adx_indicator.minus_di[0]}")
+        print("-" * 50)
+
+# Configurar o cerebro para rodar a estratégia do Backtrader
+cerebro = bt.Cerebro()
+cerebro.adddata(data_feed)
+cerebro.addstrategy(ADXStrategy)
+cerebro.broker.set_cash(1000000)
+
+# Rodar a estratégia
+cerebro.run()
 # Loop para verificar e executar as ordens
 for i in range(len(df)):
     adjusted_timestamp = timestamp[i]
