@@ -1,6 +1,6 @@
 import pandas as pd
 import numpy as np
-from datetime import datetime
+from datetime import datetime, timedelta
 import talib
 import backtrader as bt
 
@@ -69,11 +69,7 @@ class ADXStrategy(bt.Strategy):
         self.adx_indicator = ADXIndicator(self.data)
 
     def next(self):
-        # Exibir os valores atualizados de ADX, DI+ e DI- para cada vela
-        print(f"Data: {self.data.datetime.date(0)} Time: {self.data.datetime.time(0)}")
-        print(f"ADX: {self.adx_indicator.adx[0]}")
-        print(f"DI+: {self.adx_indicator.plus_di[0]}, DI-: {self.adx_indicator.minus_di[0]}")
-        print("-" * 50)
+        pass  # O next é necessário, mas como estamos apenas calculando, ele pode estar vazio.
 
 # Alimentar o DataFrame no Backtrader
 data_feed = bt.feeds.PandasData(
@@ -93,9 +89,6 @@ cerebro.addstrategy(ADXStrategy)
 cerebro.broker.set_cash(1000000)
 
 # Rodar a estratégia do Backtrader para calcular ADX e DI's
-cerebro.run()
-
-# Para capturar os valores de ADX, DI+ e DI- no loop principal
 strategy_instance = cerebro.run()[0]
 
 # Loop para verificar e executar as ordens
@@ -112,9 +105,9 @@ for i in range(adxLength, len(df)):  # Certifique-se de começar o loop a partir
     adjusted_timestamp = timestamp[i]
 
     # Pegando valores calculados do ADX e DI pelo Backtrader
-    adx_value = strategy_instance.adx_indicator.adx[i]
-    plus_di_value = strategy_instance.adx_indicator.plus_di[i]
-    minus_di_value = strategy_instance.adx_indicator.minus_di[i]
+    adx_value = strategy_instance.adx_indicator.adx[i - adxLength]
+    plus_di_value = strategy_instance.adx_indicator.plus_di[i - adxLength]
+    minus_di_value = strategy_instance.adx_indicator.minus_di[i - adxLength]
 
     # Condições de mercado em tendência (baseadas no ADX com threshold de 25)
     trendingMarket = adx_value > adx_threshold_value
@@ -129,7 +122,7 @@ for i in range(adxLength, len(df)):  # Certifique-se de começar o loop a partir
     # Condição Short
     shortCondition = (crossunder(emaShort, emaLong)[i]) & (rsi[i] > 40) & (macdHist[i] < -0.5) & trendingMarket
 
-    # Exibir os valores dos indicadores manuais para cada vela
+    # Exibir os valores dos indicadores manuais para cada vela, incluindo ADX e DI's do Backtrader
     print(f"Vela: {adjusted_timestamp}")
     print(f"EMA Curta: {emaShort[i]}, EMA Longa: {emaLong[i]}")
     print(f"RSI: {rsi[i]}")
