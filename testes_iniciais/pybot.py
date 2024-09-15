@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 # Load your data into a pandas DataFrame
 # Replace 'your_data.csv' with the path to your CSV file containing OHLCV data
 # The CSV should have columns: 'Date', 'Open', 'High', 'Low', 'Close', 'Volume'
-data = pd.read_csv('BYBIT_BTCUSDT.P_1h.csv', parse_dates=True, index_col='Date')
+data = pd.read_csv('testes_iniciais/BYBIT_BTCUSDT.P_1h.csv', parse_dates=True, index_col='Date')
 
 # Parameters (Adjust these as needed)
 emaShortLength = 11
