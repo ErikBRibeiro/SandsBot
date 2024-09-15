@@ -142,9 +142,6 @@ shortCondition = (crossunder(emaShort, emaLong)) & (rsi > 40) & (macdHist < -0.5
 for i in range(len(df)):
     adjusted_timestamp = timestamp.iloc[i]
 
-    # Print do valor de ADX para cada vela
-    print(f"Data: {adjusted_timestamp}, ADX: {adx.iloc[i]:.2f}")
-
     # Estratégia de Mean Reversion para mercado lateral
     if isLateral.iloc[i]:
         # Reversão para Long quando o preço cruza a banda inferior para cima
@@ -238,3 +235,8 @@ for order in orders:
 
 # Exibir o número total de trades
 print(f"Total de trades: {trade_count}")
+
+# Exibir os valores de ADX ao final do código
+adx_values = pd.DataFrame({'Data': timestamp, 'ADX': adx})
+print("\nValores de ADX para cada vela:")
+print(adx_values.to_string(index=False))
