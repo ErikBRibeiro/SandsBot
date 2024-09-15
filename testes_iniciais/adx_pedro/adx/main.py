@@ -2,9 +2,8 @@ from datetime import datetime
 import backtrader as bt
 
 class ADXStrategy(bt.Strategy):
-    adx_period = 14
-    adx_threshold = 20
-    adx_threshold_sell = 20
+    adx_period = 16
+    adx_threshold = 12
     adx_smooth = 13
 
     def __init__(self):
@@ -16,18 +15,17 @@ class ADXStrategy(bt.Strategy):
         # Print the ADX, DI+ and DI- values for each candle, including the date and time
         print(f"Date: {self.data.datetime.date(0)}, Time: {self.data.datetime.time(0)}, ADX: {self.adx[0]:.2f}, DI+: {self.di_plus[0]:.2f}, DI-: {self.di_minus[0]:.2f}")
 
-        if self.adx > self.adx_threshold and self.di_plus > self.di_minus:
-            self.buy()
-        elif self.adx > self.adx_threshold_sell and self.di_minus > self.di_plus:
-            self.sell()
+        if self.adx > self.adx_threshold:
+            trending = True
+            return trending
 
 if __name__ == '__main__':
     cerebro = bt.Cerebro()
 
     data = bt.feeds.GenericCSVData(
         dataname="testes_iniciais/adx_pedro/adx/bybit.csv",
-        fromdate=datetime(2024, 1, 1),
-        todate=datetime(2024, 9, 13),
+        fromdate=datetime(2020, 5, 25),
+        todate=datetime(2024, 9, 11),
         nullvalue=0.0,
         dtformat=1,
         datetime=0,
