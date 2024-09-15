@@ -11,7 +11,7 @@ from datetime import datetime
 # Remove or comment out this section if you have your own data.
 
 
-df = pd.read_csv('testes_iniciais/data.csv')
+df = pd.read_csv('testes_iniciais\data.csv')
 df['time'] = pd.to_datetime(df['time'])
 df = df.set_index('time')
 
