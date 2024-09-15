@@ -1,6 +1,6 @@
 import pandas as pd
 import numpy as np
-from datetime import datetime, timedelta
+from datetime import datetime
 import talib
 import backtrader as bt
 
@@ -69,10 +69,11 @@ class ADXStrategy(bt.Strategy):
         self.adx_indicator = ADXIndicator(self.data)
 
     def next(self):
-        # Acessar os valores ajustados de ADX, DI+ e DI-
-        self.adx_value = self.adx_indicator.adx[0]
-        self.plus_di_value = self.adx_indicator.plus_di[0]
-        self.minus_di_value = self.adx_indicator.minus_di[0]
+        # Exibir os valores atualizados de ADX, DI+ e DI- para cada vela
+        print(f"Data: {self.data.datetime.date(0)} Time: {self.data.datetime.time(0)}")
+        print(f"ADX: {self.adx_indicator.adx[0]}")
+        print(f"DI+: {self.adx_indicator.plus_di[0]}, DI-: {self.adx_indicator.minus_di[0]}")
+        print("-" * 50)
 
 # Alimentar o DataFrame no Backtrader
 data_feed = bt.feeds.PandasData(
@@ -92,6 +93,9 @@ cerebro.addstrategy(ADXStrategy)
 cerebro.broker.set_cash(1000000)
 
 # Rodar a estratégia do Backtrader para calcular ADX e DI's
+cerebro.run()
+
+# Para capturar os valores de ADX, DI+ e DI- no loop principal
 strategy_instance = cerebro.run()[0]
 
 # Loop para verificar e executar as ordens
@@ -108,9 +112,9 @@ for i in range(adxLength, len(df)):  # Certifique-se de começar o loop a partir
     adjusted_timestamp = timestamp[i]
 
     # Pegando valores calculados do ADX e DI pelo Backtrader
-    adx_value = strategy_instance.adx_indicator.adx[0]
-    plus_di_value = strategy_instance.adx_indicator.plus_di[0]
-    minus_di_value = strategy_instance.adx_indicator.minus_di[0]
+    adx_value = strategy_instance.adx_indicator.adx[i]
+    plus_di_value = strategy_instance.adx_indicator.plus_di[i]
+    minus_di_value = strategy_instance.adx_indicator.minus_di[i]
 
     # Condições de mercado em tendência (baseadas no ADX com threshold de 25)
     trendingMarket = adx_value > adx_threshold_value
