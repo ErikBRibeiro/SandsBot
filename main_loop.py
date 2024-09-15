@@ -5,7 +5,7 @@ import talib
 import os
 import time
 from dotenv import load_dotenv
-from pybit import usdt_perpetual
+from pybit import HTTP  # Updated import
 import logging
 
 # Load API key and secret from .env file
@@ -13,8 +13,8 @@ load_dotenv()
 API_KEY = os.getenv('API_KEY')
 API_SECRET = os.getenv('API_SECRET')
 
-# Initialize Bybit client for USDT perpetual contracts
-session = usdt_perpetual.HTTP(
+# Initialize Bybit client using the HTTP class
+session = HTTP(
     endpoint="https://api.bybit.com",  # Use 'https://api-testnet.bybit.com' for testnet
     api_key=API_KEY,
     api_secret=API_SECRET
