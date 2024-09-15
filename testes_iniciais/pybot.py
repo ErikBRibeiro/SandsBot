@@ -104,10 +104,10 @@ entry_price = 0  # Preço de entrada
 for i in range(adxLength, len(df)):  # Certifique-se de começar o loop a partir do período mínimo necessário para o ADX
     adjusted_timestamp = timestamp[i]
 
-    # Pegando valores calculados do ADX e DI pelo Backtrader
-    adx_value = strategy_instance.adx_indicator.adx[i - adxLength]
-    plus_di_value = strategy_instance.adx_indicator.plus_di[i - adxLength]
-    minus_di_value = strategy_instance.adx_indicator.minus_di[i - adxLength]
+    # Pegando valores calculados do ADX e DI pelo Backtrader, mas deslocando para corrigir o atraso
+    adx_value = strategy_instance.adx_indicator.adx[i - 1]  # Desloca para corrigir atraso
+    plus_di_value = strategy_instance.adx_indicator.plus_di[i - 1]  # Desloca para corrigir atraso
+    minus_di_value = strategy_instance.adx_indicator.minus_di[i - 1]  # Desloca para corrigir atraso
 
     # Condições de mercado em tendência (baseadas no ADX com threshold de 25)
     trendingMarket = adx_value > adx_threshold_value
