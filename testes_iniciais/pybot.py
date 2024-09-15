@@ -6,7 +6,7 @@ from datetime import datetime
 
 # Load your dataset into a Pandas DataFrame
 # Replace 'data.csv' with the path to your dataset
-df = pd.read_csv('data.csv', parse_dates=['time'])
+df = pd.read_csv('testes_iniciais/BYBIT_BTCUSDT.P_1h.csv', parse_dates=['time'])
 
 # Parameters (These can be adjusted as needed)
 # Parâmetros de Entrada para Ajuste
