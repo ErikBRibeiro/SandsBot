@@ -5,6 +5,7 @@ import talib
 
 # Carregar o CSV com nome atualizado
 df = pd.read_csv('BYBIT_BTCUSDT.P_1h.csv')
+#caso precise deixar em timestamp legivel
 #df['time'] = pd.to_datetime(df['time'], unit='s')
 
 # Atribuir os dados às variáveis
@@ -13,7 +14,6 @@ open_price = df['open']
 high_price = df['high']
 low_price = df['low']
 close_price = df['close']
-#volume = df['Volume']
 
 # Parâmetros configuráveis
 emaShortLength = 11  # Período da EMA Curta
@@ -96,7 +96,6 @@ def get_adx_manual(high, low, close, di_lookback, adx_smoothing):
     # Retornar os valores calculados
     return plus_di, minus_di, adx
 
-
 emaShort = (talib.EMA(close_price, emaShortLength)).round(0)
 emaLong = (talib.EMA(close_price, emaLongLength)).round(0)
 rsi = talib.RSI(close_price, timeperiod=rsiLength)
@@ -105,11 +104,8 @@ adx = adx.fillna(0).astype(int)
 macdLine, signalLine, macdHist = macd(close_price, macdShort, macdLong, macdSignal)
 upperBand, middleBand, lowerBand = talib.BBANDS(close_price, timeperiod=bbLength, nbdevup=bbMultiplier, nbdevdn=bbMultiplier, matype=0)
 
-
 def crossover(series1, series2):
     return (series1 > series2) & (series1.shift(1) <= series2.shift(1))
-
-
 
 # Função para detectar crossover (cruzamento ascendente)
 def crossover(series1, series2):
@@ -126,7 +122,6 @@ def crossunder(series1, series2):
     cross = (series1_vals[1:] < series2_vals[1:]) & (series1_vals[:-1] >= series2_vals[:-1])
     cross = np.concatenate(([False], cross))  # Prepend False to align lengths
     return pd.Series(cross, index=series1.index)
-
 
 # Condição de mercado em tendência (baseada no ADX)
 trendingMarket = adx >= adxThreshold
@@ -147,7 +142,6 @@ trade_count = 0  # Contador de trades
 # Revisão na lógica de tendência para evitar inversões incorretas
 # Condição Long
 longCondition = (crossover(emaShort, emaLong)) & (rsi < 60) & (macdHist > 0.5) & trendingMarket
-
 # Condição Short
 shortCondition = (crossunder(emaShort, emaLong)) & (rsi > 40) & (macdHist < -0.5) & trendingMarket
 
@@ -282,7 +276,6 @@ for i in range(len(df)):
                     saldo = saldo + (quantidade * (entry_price - takeProfitShort))
                     orders.append(f"sair de transação (short) em {adjusted_timestamp} com preço {takeProfitShort} (Take Profit), saldo atualizado: {saldo:.2f}")
                     position_open = False
-
 
 # Exibir as ordens geradas
 for order in orders:
