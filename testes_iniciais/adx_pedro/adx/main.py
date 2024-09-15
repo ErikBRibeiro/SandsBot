@@ -63,13 +63,19 @@ class ADXIndicator(bt.Indicator):
         self.plus_di = bt.indicators.PlusDI(self.data, period=adxLength)
         self.minus_di = bt.indicators.MinusDI(self.data, period=adxLength)
 
+    def next(self):
+        # Usar os valores "atrasados" no cálculo para evitar atraso de 1 vela
+        self.lines.adx[0] = self.adx[-1]
+        self.lines.plus_di[0] = self.plus_di[-1]
+        self.lines.minus_di[0] = self.minus_di[-1]
+
 # Configurando a estratégia do Backtrader apenas para calcular o ADX e os DI's
 class ADXStrategy(bt.Strategy):
     def __init__(self):
         self.adx_indicator = ADXIndicator(self.data)
 
     def next(self):
-        # Aqui você pode acessar os valores de ADX, DI+ e DI- e armazená-los para uso posterior
+        # Acessar os valores ajustados de ADX, DI+ e DI-
         self.adx_value = self.adx_indicator.adx[0]
         self.plus_di_value = self.adx_indicator.plus_di[0]
         self.minus_di_value = self.adx_indicator.minus_di[0]
@@ -104,13 +110,17 @@ quantidade = 0  # Quantidade de BTC comprada/vendida na transação
 entry_price = 0  # Preço de entrada
 
 # Revisão na lógica de tendência para evitar inversões incorretas
-for i in range(len(df)):
+for i in range(adxLength, len(df)):  # Certifique-se de começar o loop a partir do período mínimo necessário para o ADX
     adjusted_timestamp = timestamp[i]
 
     # Pegando valores calculados do ADX e DI pelo Backtrader
-    adx_value = strategy_instance.adx_indicator.adx[i]
-    plus_di_value = strategy_instance.adx_indicator.plus_di[i]
-    minus_di_value = strategy_instance.adx_indicator.minus_di[i]
+    try:
+        adx_value = strategy_instance.adx_indicator.adx[i - adxLength]  # Ajustar índice para evitar estouro
+        plus_di_value = strategy_instance.adx_indicator.plus_di[i - adxLength]
+        minus_di_value = strategy_instance.adx_indicator.minus_di[i - adxLength]
+    except IndexError:
+        print(f"Índice fora do alcance na vela {adjusted_timestamp}, pulando...")
+        continue
 
     # Condições de mercado em tendência (baseadas no ADX com threshold de 25)
     trendingMarket = adx_value > adx_threshold_value
