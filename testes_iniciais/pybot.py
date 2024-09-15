@@ -4,9 +4,16 @@ import ta  # Ensure this library is installed
 import matplotlib.pyplot as plt
 from datetime import datetime
 
-# Load your dataset into a Pandas DataFrame
-# Update 'data.csv' to the correct path to your dataset
-df = pd.read_csv('testes_iniciais/BYBIT_BTCUSDT.P_1h.csv', parse_dates=['time'])
+# If you have your own dataset, ensure it's correctly placed and update the path accordingly.
+# df = pd.read_csv('data.csv', parse_dates=['time'])
+
+# For demonstration purposes, let's create a sample dataset.
+# Remove or comment out this section if you have your own data.
+
+
+df = pd.read_csv('testes_iniciais/BYBIT_BTCUSDT.P_1h.csv')
+df['time'] = pd.to_datetime(df['time'])
+df = df.set_index('time')
 
 # Parameters (Adjust these as needed)
 emaShortLength = 11  # EMA Short Period
@@ -35,10 +42,6 @@ takeProfitTrendingShort = 0.77
 # Date Range Parameters
 startDate = pd.to_datetime("2020-01-01")
 endDate = pd.to_datetime("2024-10-10 23:59")
-
-# Ensure 'time' is datetime and set it as the index
-df['time'] = pd.to_datetime(df['time'])
-df = df.set_index('time')
 
 # Calculating Indicators
 # EMAs
@@ -128,7 +131,7 @@ df['shortConditionLateral'] = (
 )
 
 # Initialize position tracking columns with appropriate data types
-df['position'] = pd.Series(dtype='object')  # Allows storing strings
+df['position'] = pd.Series(index=df.index, dtype='object')  # Allows storing strings
 df['entry_price'] = np.nan
 df['exit_price'] = np.nan
 df['trade_returns'] = np.nan
@@ -210,7 +213,7 @@ for index, row in df.iterrows():
                 trade_return = (entry_price - exit_price) / entry_price
 
             cumulative_returns *= (1 + trade_return)
-            df.at[index, 'position'] = None
+            df.at[index, 'position'] = pd.NA  # Reset position
             df.at[index, 'exit_price'] = exit_price
             df.at[index, 'trade_returns'] = trade_return
             df.at[index, 'cumulative_returns'] = cumulative_returns
@@ -225,8 +228,11 @@ for index, row in df.iterrows():
                 'Return (%)': trade_return * 100
             })
 
-            # Reset position
+            # Reset position variables
             position = None
+            entry_price = 0.0
+            stop_loss_price = 0.0
+            take_profit_price = 0.0
         else:
             # Holding Position
             df.at[index, 'position'] = position
