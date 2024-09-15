@@ -4,14 +4,17 @@ import ta  # Ensure this library is installed
 import matplotlib.pyplot as plt
 from datetime import datetime
 
-# If you have your own dataset, ensure it's correctly placed and update the path accordingly.
-# df = pd.read_csv('data.csv', parse_dates=['time'])
+# Read your dataset with the correct file path
+# Option 1: Use raw string
+df = pd.read_csv(r'testes_iniciais\data.csv', parse_dates=['time'])
 
-# For demonstration purposes, let's create a sample dataset.
-# Remove or comment out this section if you have your own data.
+# Option 2: Replace backslashes with forward slashes
+# df = pd.read_csv('testes_iniciais/data.csv', parse_dates=['time'])
 
+# Option 3: Escape backslashes
+# df = pd.read_csv('testes_iniciais\\data.csv', parse_dates=['time'])
 
-df = pd.read_csv('testes_iniciais\data.csv')
+# Ensure 'time' is datetime and set it as the index
 df['time'] = pd.to_datetime(df['time'])
 df = df.set_index('time')
 
