@@ -1,6 +1,8 @@
 from datetime import datetime
 import backtrader as bt
 
+
+
 class ADXStrategy(bt.Strategy):
     adx_period = 14
     adx_threshold = 20
@@ -11,15 +13,18 @@ class ADXStrategy(bt.Strategy):
         self.adx = bt.indicators.ADX(self.data, period=self.adx_period)
         self.di_plus = bt.indicators.PlusDI(self.data, period=self.adx_period)
         self.di_minus = bt.indicators.MinusDI(self.data, period=self.adx_period)
+    
+    def returnAdx(self):
+        return self.adx
 
-    def next(self):
+    #def next(self):
         # Print the ADX, DI+ and DI- values for each candle, including the date and time
-        print(f"Date: {self.data.datetime.date(0)}, Time: {self.data.datetime.time(0)}, ADX: {self.adx[0]:.2f}, DI+: {self.di_plus[0]:.2f}, DI-: {self.di_minus[0]:.2f}")
+        #print(f"Date: {self.data.datetime.date(0)}, Time: {self.data.datetime.time(0)}, ADX: {self.adx[0]:.2f}, DI+: {self.di_plus[0]:.2f}, DI-: {self.di_minus[0]:.2f}")
 
-        if self.adx > self.adx_threshold and self.di_plus > self.di_minus:
-            self.buy()
-        elif self.adx > self.adx_threshold_sell and self.di_minus > self.di_plus:
-            self.sell()
+        #if self.adx > self.adx_threshold and self.di_plus > self.di_minus:
+        ##
+        # elif self.adx > self.adx_threshold_sell and self.di_minus > self.di_plus:
+        #   self.sell()
 
 if __name__ == '__main__':
     cerebro = bt.Cerebro()
