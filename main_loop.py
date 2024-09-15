@@ -6,6 +6,7 @@ import os
 import time
 from dotenv import load_dotenv
 from pybit import usdt_perpetual
+import logging
 
 # Load API key and secret from .env file
 load_dotenv()
@@ -20,6 +21,16 @@ session = usdt_perpetual.HTTP(
 )
 
 symbol = 'BTCUSDT'
+
+# Set up logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler("bot_log.log"),
+        logging.StreamHandler()
+    ]
+)
 
 # Function to fetch historical kline data
 def get_historical_klines(symbol, interval, limit):
@@ -123,6 +134,8 @@ trade_count = 0  # Counter for the number of trades
 
 # Initialize variables
 last_candle_time = None  # To keep track of when to update indicators
+last_log_time = None     # To keep track of logging every 10 minutes
+previous_isLateral = None  # To detect transition into lateral market
 
 # Main trading loop
 while True:
@@ -159,10 +172,49 @@ while True:
             # Determine trending market
             trendingMarket = adx.iloc[-1] >= 12  # adxThreshold
 
+            # Detect transition into lateral market
+            if previous_isLateral is not None and isLateral.iloc[-1] != previous_isLateral:
+                if isLateral.iloc[-1]:
+                    # Entered lateral market
+                    logging.info("Entered lateral market. Stopgain and Stoploss levels adjusted.")
+                    logging.info(f"Stopgain and Stoploss levels for lateral market - Long: Stopgain {stopgain_lateral_long}, Stoploss {stoploss_lateral_long}; Short: Stopgain {stopgain_lateral_short}, Stoploss {stoploss_lateral_short}")
+                else:
+                    # Exited lateral market
+                    logging.info("Exited lateral market. Stopgain and Stoploss levels adjusted.")
+                    logging.info(f"Stopgain and Stoploss levels for trending market - Long: Stopgain {stopgain_normal_long}, Stoploss {stoploss_normal_long}; Short: Stopgain {stopgain_normal_short}, Stoploss {stoploss_normal_short}")
+
+            previous_isLateral = isLateral.iloc[-1]
+
             # Update last_candle_time
             last_candle_time = current_time
 
-            print(f"Indicators updated at {current_time}")
+            logging.info(f"Indicators updated at {current_time}")
+
+        # Log bot status every 10 minutes
+        if last_log_time is None or (current_time - last_log_time).total_seconds() >= 600:
+            current_position, position_info = get_current_position()
+            if not current_position:
+                logging.info("Bot status: Out of trade.")
+            else:
+                side = position_info['side']
+                entry_price = position_info['entry_price']
+                if isLateral.iloc[-1]:
+                    if side == 'Buy':
+                        stop_loss = entry_price * stoploss_lateral_long
+                        take_profit = entry_price * stopgain_lateral_long
+                    else:
+                        stop_loss = entry_price * stoploss_lateral_short
+                        take_profit = entry_price * stopgain_lateral_short
+                else:
+                    if side == 'Buy':
+                        stop_loss = entry_price * stoploss_normal_long
+                        take_profit = entry_price * stopgain_normal_long
+                    else:
+                        stop_loss = entry_price * stoploss_normal_short
+                        take_profit = entry_price * stopgain_normal_short
+                logging.info(f"Bot status: In a {side.lower()} position.")
+                logging.info(f"Current Stoploss: {stop_loss:.2f}, Take Profit: {take_profit:.2f}")
+            last_log_time = current_time
 
         # Fetch the latest price every second
         latest_price = get_latest_price()
@@ -201,7 +253,8 @@ while True:
                         reduce_only=False,
                         close_on_trigger=False
                     )
-                    print(f"Entered long position at {datetime.utcnow()}, price: {latest_price}")
+                    logging.info(f"Entered long position at {datetime.utcnow()}, price: {latest_price}")
+                    logging.info(f"Stoploss set at {latest_price * stoploss_lateral_long:.2f}, Take Profit set at {latest_price * stopgain_lateral_long:.2f}")
                     trade_count += 1
                 elif (latest_price > upperBand.iloc[-1]) and shortCondition:
                     # Open short position
@@ -215,7 +268,8 @@ while True:
                         reduce_only=False,
                         close_on_trigger=False
                     )
-                    print(f"Entered short position at {datetime.utcnow()}, price: {latest_price}")
+                    logging.info(f"Entered short position at {datetime.utcnow()}, price: {latest_price}")
+                    logging.info(f"Stoploss set at {latest_price * stoploss_lateral_short:.2f}, Take Profit set at {latest_price * stopgain_lateral_short:.2f}")
                     trade_count += 1
             else:
                 # Trend Following Strategy in Trending Market
@@ -231,7 +285,8 @@ while True:
                         reduce_only=False,
                         close_on_trigger=False
                     )
-                    print(f"Entered long position at {datetime.utcnow()}, price: {latest_price}")
+                    logging.info(f"Entered long position at {datetime.utcnow()}, price: {latest_price}")
+                    logging.info(f"Stoploss set at {latest_price * stoploss_normal_long:.2f}, Take Profit set at {latest_price * stopgain_normal_long:.2f}")
                     trade_count += 1
                 elif shortCondition:
                     # Open short position
@@ -245,7 +300,8 @@ while True:
                         reduce_only=False,
                         close_on_trigger=False
                     )
-                    print(f"Entered short position at {datetime.utcnow()}, price: {latest_price}")
+                    logging.info(f"Entered short position at {datetime.utcnow()}, price: {latest_price}")
+                    logging.info(f"Stoploss set at {latest_price * stoploss_normal_short:.2f}, Take Profit set at {latest_price * stopgain_normal_short:.2f}")
                     trade_count += 1
         else:
             # Manage open position
@@ -269,7 +325,7 @@ while True:
                             reduce_only=True,
                             close_on_trigger=False
                         )
-                        print(f"Exited long position at {datetime.utcnow()}, price: {latest_price}")
+                        logging.info(f"Exited long position at {datetime.utcnow()}, price: {latest_price}")
                     elif latest_price >= take_profit:
                         # Close position at take profit
                         order = session.place_active_order(
@@ -281,7 +337,7 @@ while True:
                             reduce_only=True,
                             close_on_trigger=False
                         )
-                        print(f"Exited long position at {datetime.utcnow()}, price: {latest_price}")
+                        logging.info(f"Exited long position at {datetime.utcnow()}, price: {latest_price}")
                 elif side == 'Sell':
                     # Short position
                     stop_loss = entry_price * stoploss_lateral_short
@@ -297,7 +353,7 @@ while True:
                             reduce_only=True,
                             close_on_trigger=False
                         )
-                        print(f"Exited short position at {datetime.utcnow()}, price: {latest_price}")
+                        logging.info(f"Exited short position at {datetime.utcnow()}, price: {latest_price}")
                     elif latest_price <= take_profit:
                         # Close position at take profit
                         order = session.place_active_order(
@@ -309,7 +365,7 @@ while True:
                             reduce_only=True,
                             close_on_trigger=False
                         )
-                        print(f"Exited short position at {datetime.utcnow()}, price: {latest_price}")
+                        logging.info(f"Exited short position at {datetime.utcnow()}, price: {latest_price}")
             else:
                 # Trending market exit conditions
                 if side == 'Buy':
@@ -327,7 +383,7 @@ while True:
                             reduce_only=True,
                             close_on_trigger=False
                         )
-                        print(f"Exited long position at {datetime.utcnow()}, price: {latest_price}")
+                        logging.info(f"Exited long position at {datetime.utcnow()}, price: {latest_price}")
                     elif latest_price >= take_profit:
                         # Close position at take profit
                         order = session.place_active_order(
@@ -339,7 +395,7 @@ while True:
                             reduce_only=True,
                             close_on_trigger=False
                         )
-                        print(f"Exited long position at {datetime.utcnow()}, price: {latest_price}")
+                        logging.info(f"Exited long position at {datetime.utcnow()}, price: {latest_price}")
                 elif side == 'Sell':
                     # Short position
                     stop_loss = entry_price * stoploss_normal_short
@@ -355,7 +411,7 @@ while True:
                             reduce_only=True,
                             close_on_trigger=False
                         )
-                        print(f"Exited short position at {datetime.utcnow()}, price: {latest_price}")
+                        logging.info(f"Exited short position at {datetime.utcnow()}, price: {latest_price}")
                     elif latest_price <= take_profit:
                         # Close position at take profit
                         order = session.place_active_order(
@@ -367,11 +423,11 @@ while True:
                             reduce_only=True,
                             close_on_trigger=False
                         )
-                        print(f"Exited short position at {datetime.utcnow()}, price: {latest_price}")
+                        logging.info(f"Exited short position at {datetime.utcnow()}, price: {latest_price}")
 
         # Wait for 1 second before next price check
         time.sleep(1)
 
     except Exception as e:
-        print(f"An error occurred: {e}")
+        logging.error(f"An error occurred: {e}")
         time.sleep(5)
