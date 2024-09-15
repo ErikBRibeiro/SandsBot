@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 import talib
-from testes_iniciais.adx_pedro.adx.main import run_strategy
+from adx_pedro.adx.main import run_strategy
 
 # Carregar o CSV com nome atualizado
 df = pd.read_csv('testes_iniciais/BYBIT_BTCUSDT.P_1h.csv')
