@@ -7,12 +7,11 @@ import pandas_ta as ta
 import matplotlib.pyplot as plt
 
 # Load your data into a pandas DataFrame
-# Replace 'testes_iniciais/BYBIT_BTCUSDT.P_1h.csv' with the path to your CSV file containing OHLCV data
-# The CSV should have columns: 'timestamp', 'open', 'high', 'low', 'close', 'volume'
+# Adjust 'date' to your actual date column name
 data = pd.read_csv(
     'testes_iniciais/BYBIT_BTCUSDT.P_1h.csv',
-    parse_dates=['timestamp'],  # Adjust this if your date column has a different name
-    index_col='timestamp'
+    parse_dates=['date'],  # Replace 'date' with your date column name
+    index_col='date'       # Replace 'date' with your date column name
 )
 
 # If necessary, rename columns to match expected names
