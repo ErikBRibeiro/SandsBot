@@ -7,9 +7,22 @@ import pandas_ta as ta
 import matplotlib.pyplot as plt
 
 # Load your data into a pandas DataFrame
-# Replace 'your_data.csv' with the path to your CSV file containing OHLCV data
-# The CSV should have columns: 'Date', 'Open', 'High', 'Low', 'Close', 'Volume'
-data = pd.read_csv('testes_iniciais/BYBIT_BTCUSDT.P_1h.csv', parse_dates=True, index_col='Date')
+# Replace 'testes_iniciais/BYBIT_BTCUSDT.P_1h.csv' with the path to your CSV file containing OHLCV data
+# The CSV should have columns: 'timestamp', 'open', 'high', 'low', 'close', 'volume'
+data = pd.read_csv(
+    'testes_iniciais/BYBIT_BTCUSDT.P_1h.csv',
+    parse_dates=['timestamp'],  # Adjust this if your date column has a different name
+    index_col='timestamp'
+)
+
+# If necessary, rename columns to match expected names
+data.rename(columns={
+    'open': 'Open',
+    'high': 'High',
+    'low': 'Low',
+    'close': 'Close',
+    'volume': 'Volume'
+}, inplace=True)
 
 # Parameters (Adjust these as needed)
 emaShortLength = 11
@@ -52,21 +65,27 @@ data['rsi'] = ta.rsi(data['Close'], length=rsiLength)
 
 # Moving Average Convergence Divergence
 macd = ta.macd(data['Close'], fast=macdShort, slow=macdLong, signal=macdSignal)
-data['macdLine'] = macd['MACD_{}_{}_{}'.format(macdShort, macdLong, macdSignal)]
-data['signalLine'] = macd['MACDs_{}_{}_{}'.format(macdShort, macdLong, macdSignal)]
-data['macdHist'] = macd['MACDh_{}_{}_{}'.format(macdShort, macdLong, macdSignal)]
+data = pd.concat([data, macd], axis=1)
+
+data['macdLine'] = data[f'MACD_{macdShort}_{macdLong}_{macdSignal}']
+data['signalLine'] = data[f'MACDs_{macdShort}_{macdLong}_{macdSignal}']
+data['macdHist'] = data[f'MACDh_{macdShort}_{macdLong}_{macdSignal}']
 
 # Average Directional Movement Index
 dmi = ta.adx(data['High'], data['Low'], data['Close'], length=16)
-data['diplus'] = dmi['DMP_16']  # +DI
-data['diminus'] = dmi['DMN_16']  # -DI
-data['adxValue'] = dmi['ADX_16']
+data = pd.concat([data, dmi], axis=1)
+
+data['diplus'] = data['DMP_16']  # +DI
+data['diminus'] = data['DMN_16']  # -DI
+data['adxValue'] = data['ADX_16']
 
 # Bollinger Bands
 bb = ta.bbands(data['Close'], length=bbLength, std=bbMultiplier)
-data['upperBand'] = bb['BBU_{}_{}'.format(bbLength, bbMultiplier)]
-data['lowerBand'] = bb['BBL_{}_{}'.format(bbLength, bbMultiplier)]
-data['basis'] = bb['BBM_{}_{}'.format(bbLength, bbMultiplier)]
+data = pd.concat([data, bb], axis=1)
+
+data['upperBand'] = data[f'BBU_{bbLength}_{bbMultiplier}']
+data['lowerBand'] = data[f'BBL_{bbLength}_{bbMultiplier}']
+data['basis'] = data[f'BBM_{bbLength}_{bbMultiplier}']
 
 # Bollinger Bandwidth
 data['bandWidth'] = (data['upperBand'] - data['lowerBand']) / data['basis']
@@ -219,3 +238,4 @@ win_rate = len(winning_trades) / number_of_trades if number_of_trades > 0 else 0
 print(f"Total Profit: {total_profit}")
 print(f"Number of Trades: {number_of_trades}")
 print(f"Win Rate: {win_rate * 100:.2f}%")
+
