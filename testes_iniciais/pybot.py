@@ -230,7 +230,7 @@ for i in range(len(df)):
     current_plus_di = plus_di.iloc[i]
     current_minus_di = minus_di.iloc[i]
     trending = current_adx > adxThreshold
-    print(f"Data: {date}, Hora: {time}, ADX: {current_adx:.2f}, DI+: {current_plus_di:.2f}, DI-: {current_minus_di:.2f}, Tendência: {trending}")
+    print(f"Data: {date}, Hora: {time}, ADX: {current_adx:.2f}, Tendência: {trending}")
 
 # Imprimir o saldo final
 print(f"\nSaldo final: {saldo:.2f}")
