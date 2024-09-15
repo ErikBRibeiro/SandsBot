@@ -5,35 +5,34 @@ import matplotlib.pyplot as plt
 from datetime import datetime
 
 # Load your dataset into a Pandas DataFrame
-# Replace 'data.csv' with the path to your dataset
+# Update 'data.csv' to the correct path to your dataset
 df = pd.read_csv('testes_iniciais/BYBIT_BTCUSDT.P_1h.csv', parse_dates=['time'])
 
-# Parameters (These can be adjusted as needed)
-# Parâmetros de Entrada para Ajuste
-emaShortLength = 11  # Período da EMA Curta
-emaLongLength = 55   # Período da EMA Longa
-rsiLength = 22       # Período do RSI
-macdShort = 15       # Período Curto MACD
-macdLong = 34        # Período Longo MACD
-macdSignal = 11      # Período de Sinal MACD
-adxThreshold = 12.0  # Nível de ADX
-bbLength = 14        # Período do Bollinger Bands
-bbMultiplier = 1.7   # Multiplicador do Bollinger Bands
-lateralThreshold = 0.005  # Limite de Lateralização
+# Parameters (Adjust these as needed)
+emaShortLength = 11  # EMA Short Period
+emaLongLength = 55   # EMA Long Period
+rsiLength = 22       # RSI Period
+macdShort = 15       # MACD Short Period
+macdLong = 34        # MACD Long Period
+macdSignal = 11      # MACD Signal Period
+adxThreshold = 12.0  # ADX Threshold
+bbLength = 14        # Bollinger Bands Period
+bbMultiplier = 1.7   # Bollinger Bands Multiplier
+lateralThreshold = 0.005  # Lateralization Threshold
 
-# Parâmetros para Stop Loss e Take Profit em mercado lateral
+# Stop Loss and Take Profit Parameters for Lateral Market
 stopLossLateralLong = 0.973
 takeProfitLateralLong = 1.11
 stopLossLateralShort = 1.09
 takeProfitLateralShort = 0.973
 
-# Parâmetros para Stop Loss e Take Profit em mercado de tendência
+# Stop Loss and Take Profit Parameters for Trending Market
 stopLossTrendingLong = 0.92
 takeProfitTrendingLong = 1.32
 stopLossTrendingShort = 1.12
 takeProfitTrendingShort = 0.77
 
-# Entrada de Parâmetros de Data
+# Date Range Parameters
 startDate = pd.to_datetime("2020-01-01")
 endDate = pd.to_datetime("2024-10-10 23:59")
 
@@ -62,7 +61,6 @@ df['macdHist'] = macd_indicator.macd_diff()
 
 # ADX
 adx_length = 16  # DI Length from Pine Script
-adx_smoothing = 13  # ADX Smoothing from Pine Script
 adx_indicator = ta.trend.ADXIndicator(
     high=df['high'],
     low=df['low'],
@@ -129,8 +127,8 @@ df['shortConditionLateral'] = (
     df['inDateRange']
 )
 
-# Initialize position tracking columns
-df['position'] = np.nan
+# Initialize position tracking columns with appropriate data types
+df['position'] = pd.Series(dtype='object')  # Allows storing strings
 df['entry_price'] = np.nan
 df['exit_price'] = np.nan
 df['trade_returns'] = np.nan
