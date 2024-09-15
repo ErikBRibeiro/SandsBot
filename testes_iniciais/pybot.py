@@ -1,325 +1,221 @@
+# Ribeiro's Trading Bot translated from Pine Script to Python
+# Libraries required: pandas, numpy, pandas_ta, matplotlib
+
 import pandas as pd
 import numpy as np
-from datetime import datetime, timedelta
-import talib
+import pandas_ta as ta
+import matplotlib.pyplot as plt
 
-# Carregar o CSV com nome atualizado
-df = pd.read_csv('testes_iniciais/BYBIT_BTCUSDT.P_1h.csv')
+# Load your data into a pandas DataFrame
+# Replace 'your_data.csv' with the path to your CSV file containing OHLCV data
+# The CSV should have columns: 'Date', 'Open', 'High', 'Low', 'Close', 'Volume'
+data = pd.read_csv('BYBIT_BTCUSDT.P_1h.csv', parse_dates=True, index_col='Date')
 
+# Parameters (Adjust these as needed)
+emaShortLength = 11
+emaLongLength = 55
+rsiLength = 22
+macdShort = 15
+macdLong = 34
+macdSignal = 11
+adxThreshold = 12
+bbLength = 14
+bbMultiplier = 1.7
+lateralThreshold = 0.005
 
-# Atribuir os dados às variáveis
-timestamp = df['time']
-open_price = df['open']
-high_price = df['high']
-low_price = df['low']
-close_price = df['close']
-volume = df['Volume']
+# Stop Loss and Take Profit parameters for lateral market
+stopLossLateralLong = 0.973  # As a multiplier
+takeProfitLateralLong = 1.11
+stopLossLateralShort = 1.09
+takeProfitLateralShort = 0.973
 
-# Parâmetros configuráveis
-emaShortLength = 11  # Período da EMA Curta
-emaLongLength = 55  # Período da EMA Longa
-rsiLength = 22  # Período do RSI
-macdShort = 15  # Período Curto MACD
-macdLong = 34  # Período Longo MACD
-macdSignal = 11  # Período de Sinal MACD
-adxLength = 16  # Período ADX (igual ao DI Length)
-adxSmoothing = 13  # ADX Smoothing
-adxThreshold = 12  # Nível de ADX para indicar tendência
-bbLength = 14  # Período do Bollinger Bands
-bbMultiplier = 1.7  # Multiplicador do Bollinger Bands
-lateralThreshold = 0.005  # Limite de Lateralização
+# Stop Loss and Take Profit parameters for trending market
+stopLossTrendingLong = 0.92
+takeProfitTrendingLong = 1.32
+stopLossTrendingShort = 1.12
+takeProfitTrendingShort = 0.77
 
-# Funções para cálculo manual do MACD
-def macd(series, fast_period, slow_period, signal_period):
-    ema_fast = talib.EMA(series, fast_period)
-    ema_slow = talib.EMA(series, slow_period)
-    macd_line = ema_fast - ema_slow
-    signal_line = talib.EMA(macd_line, signal_period)
-    macd_hist = macd_line - signal_line
-    return macd_line, signal_line, macd_hist
+# Date range parameters
+startDate = pd.to_datetime("2020-01-01")
+endDate = pd.to_datetime("2024-10-10")
 
-def get_adx_manual(high, low, close, di_lookback, adx_smoothing):
-    tr = []
-    previous_close = close.iloc[0]
-    plus_dm = []
-    minus_dm = []
+# Filter data within the date range
+data = data[(data.index >= startDate) & (data.index <= endDate)]
 
-    for i in range(1, len(close)):
-        current_plus_dm = high.iloc[i] - high.iloc[i-1]
-        current_minus_dm = low.iloc[i-1] - low.iloc[i]
-        plus_dm.append(max(current_plus_dm, 0) if current_plus_dm > current_minus_dm else 0)
-        minus_dm.append(max(current_minus_dm, 0) if current_minus_dm > current_plus_dm else 0)
-        
-        tr1 = high.iloc[i] - low.iloc[i]
-        tr2 = abs(high.iloc[i] - previous_close)
-        tr3 = abs(low.iloc[i] - previous_close)
-        true_range = max(tr1, tr2, tr3)
-        tr.append(true_range)
-        
-        previous_close = close.iloc[i]
-    
-    tr.insert(0, np.nan)
-    plus_dm.insert(0, np.nan)
-    minus_dm.insert(0, np.nan)
-    
-    tr = pd.Series(tr)
-    plus_dm = pd.Series(plus_dm)
-    minus_dm = pd.Series(minus_dm)
-    
-    atr = tr.rolling(window=di_lookback).mean()
-    
-    plus_di = 100 * (plus_dm.ewm(alpha=1/di_lookback).mean() / atr)
-    minus_di = 100 * (minus_dm.ewm(alpha=1/di_lookback).mean() / atr)
-    
-    dx = (abs(plus_di - minus_di) / (plus_di + minus_di)) * 100
-    
-    adx = dx.ewm(alpha=1/adx_smoothing).mean()
-    
-    return plus_di, minus_di, adx
+# Calculate Indicators
+# Exponential Moving Averages
+data['emaShort'] = ta.ema(data['Close'], length=emaShortLength)
+data['emaLong'] = ta.ema(data['Close'], length=emaLongLength)
 
-# Calcular os indicadores manuais e via TA-Lib
-emaShort = talib.EMA(close_price, emaShortLength)
-emaLong = talib.EMA(close_price, emaLongLength)
-rsi = talib.RSI(close_price, timeperiod=rsiLength)
-macdLine, signalLine, macdHist = macd(close_price, macdShort, macdLong, macdSignal)
-plus_di, minus_di, adx = get_adx_manual(high_price, low_price, close_price, adxLength, adxSmoothing)
+# Relative Strength Index
+data['rsi'] = ta.rsi(data['Close'], length=rsiLength)
+
+# Moving Average Convergence Divergence
+macd = ta.macd(data['Close'], fast=macdShort, slow=macdLong, signal=macdSignal)
+data['macdLine'] = macd['MACD_{}_{}_{}'.format(macdShort, macdLong, macdSignal)]
+data['signalLine'] = macd['MACDs_{}_{}_{}'.format(macdShort, macdLong, macdSignal)]
+data['macdHist'] = macd['MACDh_{}_{}_{}'.format(macdShort, macdLong, macdSignal)]
+
+# Average Directional Movement Index
+dmi = ta.adx(data['High'], data['Low'], data['Close'], length=16)
+data['diplus'] = dmi['DMP_16']  # +DI
+data['diminus'] = dmi['DMN_16']  # -DI
+data['adxValue'] = dmi['ADX_16']
 
 # Bollinger Bands
-upperBand, middleBand, lowerBand = talib.BBANDS(close_price, timeperiod=bbLength, nbdevup=bbMultiplier, nbdevdn=bbMultiplier, matype=0)
+bb = ta.bbands(data['Close'], length=bbLength, std=bbMultiplier)
+data['upperBand'] = bb['BBU_{}_{}'.format(bbLength, bbMultiplier)]
+data['lowerBand'] = bb['BBL_{}_{}'.format(bbLength, bbMultiplier)]
+data['basis'] = bb['BBM_{}_{}'.format(bbLength, bbMultiplier)]
 
-# Função para detectar crossover (cruzamento ascendente)
-def crossover(series1, series2):
-    cross = (series1 > series2) & (series1.shift(1) <= series2.shift(1))
-    cross_filled = cross.fillna(False)
-    return cross_filled
+# Bollinger Bandwidth
+data['bandWidth'] = (data['upperBand'] - data['lowerBand']) / data['basis']
 
-# Função para detectar crossunder (cruzamento descendente)
-def crossunder(series1, series2):
-    cross = (series1 < series2) & (series1.shift(1) >= series2.shift(1))
-    cross_filled = cross.fillna(False)
-    return cross_filled
+# Market Conditions
+data['isLateral'] = data['bandWidth'] < lateralThreshold
+data['trendingMarket'] = data['adxValue'] > adxThreshold
 
-# Condição de mercado em tendência (baseada no ADX)
-trendingMarket = adx > adxThreshold
+# Entry Conditions for Trending Market
+data['longCondition'] = (
+    (data['emaShort'] > data['emaLong']) & (data['emaShort'].shift(1) <= data['emaLong'].shift(1)) &
+    (data['rsi'] < 60) &
+    (data['macdHist'] > 0.5) &
+    (data['trendingMarket']) &
+    (~data['isLateral'])
+)
 
-# Condições de lateralização com Bollinger Bands
-bandWidth = (upperBand - lowerBand) / middleBand
-isLateral = bandWidth < lateralThreshold
+data['shortCondition'] = (
+    (data['emaShort'] < data['emaLong']) & (data['emaShort'].shift(1) >= data['emaLong'].shift(1)) &
+    (data['rsi'] > 40) &
+    (data['macdHist'] < -0.5) &
+    (data['trendingMarket']) &
+    (~data['isLateral'])
+)
 
-# Saldo inicial
-saldo = 1_000_000  # Saldo inicial de 1.000.000
-quantidade = 0  # Quantidade de BTC comprada/vendida na transação
-position_open = False  # Indica se estamos em uma transação
-current_position = None  # 'long' ou 'short'
-entry_price = None  # Preço de entrada da posição
-transactions = []  # Lista para armazenar todas as transações
-trade_count = 0  # Contador de trades
+# Entry Conditions for Lateral Market (Mean Reversion)
+data['longConditionLateral'] = (
+    (data['Close'] > data['lowerBand']) & (data['Close'].shift(1) <= data['lowerBand'].shift(1)) &
+    (data['isLateral'])
+)
 
-# Revisão na lógica de tendência para evitar inversões incorretas
-# Condição Long
-longCondition = (crossover(emaShort, emaLong)) & (rsi < 60) & (macdHist > 0.5) & trendingMarket
+data['shortConditionLateral'] = (
+    (data['Close'] < data['upperBand']) & (data['Close'].shift(1) >= data['upperBand'].shift(1)) &
+    (data['isLateral'])
+)
 
-# Condição Short
-shortCondition = (crossunder(emaShort, emaLong)) & (rsi > 40) & (macdHist < -0.5) & trendingMarket
+# Initialize variables for trade simulation
+position = 0  # 0 = Flat, 1 = Long, -1 = Short
+entryPrice = 0.0
+stopLoss = 0.0
+takeProfit = 0.0
+trade_log = []
 
-# Loop para verificar e executar as ordens
-for i in range(len(df)):
-    adjusted_timestamp = timestamp.iloc[i]
-    date = adjusted_timestamp.date()
-    time = adjusted_timestamp.time()
+# Simulate Trades
+for index, row in data.iterrows():
+    if position == 0:
+        # Check for entry signals
+        if row['longCondition']:
+            position = 1
+            entryPrice = row['Close']
+            stopLoss = entryPrice * stopLossTrendingLong
+            takeProfit = entryPrice * takeProfitTrendingLong
+            positionType = 'Long Trending'
+            trade = {'EntryDate': index, 'Position': 'Long', 'EntryPrice': entryPrice,
+                     'StopLoss': stopLoss, 'TakeProfit': takeProfit, 'Type': positionType}
+        elif row['shortCondition']:
+            position = -1
+            entryPrice = row['Close']
+            stopLoss = entryPrice * stopLossTrendingShort
+            takeProfit = entryPrice * takeProfitTrendingShort
+            positionType = 'Short Trending'
+            trade = {'EntryDate': index, 'Position': 'Short', 'EntryPrice': entryPrice,
+                     'StopLoss': stopLoss, 'TakeProfit': takeProfit, 'Type': positionType}
+        elif row['longConditionLateral']:
+            position = 1
+            entryPrice = row['Close']
+            stopLoss = entryPrice * stopLossLateralLong
+            takeProfit = entryPrice * takeProfitLateralLong
+            positionType = 'Long Lateral'
+            trade = {'EntryDate': index, 'Position': 'Long', 'EntryPrice': entryPrice,
+                     'StopLoss': stopLoss, 'TakeProfit': takeProfit, 'Type': positionType}
+        elif row['shortConditionLateral']:
+            position = -1
+            entryPrice = row['Close']
+            stopLoss = entryPrice * stopLossLateralShort
+            takeProfit = entryPrice * takeProfitLateralShort
+            positionType = 'Short Lateral'
+            trade = {'EntryDate': index, 'Position': 'Short', 'EntryPrice': entryPrice,
+                     'StopLoss': stopLoss, 'TakeProfit': takeProfit, 'Type': positionType}
+    else:
+        # Check for exit signals
+        if position == 1:
+            # Long position
+            if row['Low'] <= stopLoss and row['High'] >= takeProfit:
+                # Both levels hit; prioritize Take Profit
+                exitPrice = takeProfit
+                position = 0
+                trade['ExitDate'] = index
+                trade['ExitPrice'] = exitPrice
+                trade['Profit'] = exitPrice - entryPrice
+                trade['ExitReason'] = 'Take Profit'
+                trade_log.append(trade)
+            elif row['Low'] <= stopLoss:
+                # Stop Loss hit
+                exitPrice = stopLoss
+                position = 0
+                trade['ExitDate'] = index
+                trade['ExitPrice'] = exitPrice
+                trade['Profit'] = exitPrice - entryPrice
+                trade['ExitReason'] = 'Stop Loss'
+                trade_log.append(trade)
+            elif row['High'] >= takeProfit:
+                # Take Profit hit
+                exitPrice = takeProfit
+                position = 0
+                trade['ExitDate'] = index
+                trade['ExitPrice'] = exitPrice
+                trade['Profit'] = exitPrice - entryPrice
+                trade['ExitReason'] = 'Take Profit'
+                trade_log.append(trade)
+        elif position == -1:
+            # Short position
+            if row['High'] >= stopLoss and row['Low'] <= takeProfit:
+                # Both levels hit; prioritize Take Profit
+                exitPrice = takeProfit
+                position = 0
+                trade['ExitDate'] = index
+                trade['ExitPrice'] = exitPrice
+                trade['Profit'] = entryPrice - exitPrice
+                trade['ExitReason'] = 'Take Profit'
+                trade_log.append(trade)
+            elif row['High'] >= stopLoss:
+                # Stop Loss hit
+                exitPrice = stopLoss
+                position = 0
+                trade['ExitDate'] = index
+                trade['ExitPrice'] = exitPrice
+                trade['Profit'] = entryPrice - exitPrice
+                trade['ExitReason'] = 'Stop Loss'
+                trade_log.append(trade)
+            elif row['Low'] <= takeProfit:
+                # Take Profit hit
+                exitPrice = takeProfit
+                position = 0
+                trade['ExitDate'] = index
+                trade['ExitPrice'] = exitPrice
+                trade['Profit'] = entryPrice - exitPrice
+                trade['ExitReason'] = 'Take Profit'
+                trade_log.append(trade)
 
-    # Estratégia de Mean Reversion para mercado lateral
-    if isLateral.iloc[i]:
-        # Reversão para Long quando o preço cruza a banda inferior para cima
-        if (close_price.iloc[i] < lowerBand.iloc[i]) and crossover(close_price, lowerBand).iloc[i]:
-            entry_price = close_price.iloc[i]
-            quantidade = saldo / entry_price
-            stopLossLong = entry_price * 0.973
-            takeProfitLong = entry_price * 1.11
-            position_open = True
-            current_position = 'long'
-            trade_count += 1
-            transactions.append({
-                'Tipo': 'Entrada',
-                'Posição': 'Long',
-                'Data': adjusted_timestamp,
-                'Preço': entry_price,
-                'StopLoss': stopLossLong,
-                'TakeProfit': takeProfitLong,
-                'Saldo': saldo
-            })
+# Convert trade log to DataFrame
+trades = pd.DataFrame(trade_log)
 
-        # Reversão para Short quando o preço cruza a banda superior para baixo
-        elif (close_price.iloc[i] > upperBand.iloc[i]) and crossunder(close_price, upperBand).iloc[i]:
-            entry_price = close_price.iloc[i]
-            quantidade = saldo / entry_price
-            stopLossShort = entry_price * 1.09
-            takeProfitShort = entry_price * 0.973
-            position_open = True
-            current_position = 'short'
-            trade_count += 1
-            transactions.append({
-                'Tipo': 'Entrada',
-                'Posição': 'Short',
-                'Data': adjusted_timestamp,
-                'Preço': entry_price,
-                'StopLoss': stopLossShort,
-                'TakeProfit': takeProfitShort,
-                'Saldo': saldo
-            })
+# Calculate Performance Metrics
+total_profit = trades['Profit'].sum()
+number_of_trades = len(trades)
+winning_trades = trades[trades['Profit'] > 0]
+win_rate = len(winning_trades) / number_of_trades if number_of_trades > 0 else 0
 
-    # Se não há uma posição aberta e o mercado não está lateral
-    if not position_open and not isLateral.iloc[i]:
-        if longCondition.iloc[i]:
-            entry_price = close_price.iloc[i]
-            quantidade = saldo / entry_price
-            stopLossLong = entry_price * 0.92
-            takeProfitLong = entry_price * 1.32
-            position_open = True
-            current_position = 'long'
-            trade_count += 1
-            transactions.append({
-                'Tipo': 'Entrada',
-                'Posição': 'Long',
-                'Data': adjusted_timestamp,
-                'Preço': entry_price,
-                'StopLoss': stopLossLong,
-                'TakeProfit': takeProfitLong,
-                'Saldo': saldo
-            })
-        elif shortCondition.iloc[i]:
-            entry_price = close_price.iloc[i]
-            quantidade = saldo / entry_price
-            stopLossShort = entry_price * 1.12
-            takeProfitShort = entry_price * 0.77
-            position_open = True
-            current_position = 'short'
-            trade_count += 1
-            transactions.append({
-                'Tipo': 'Entrada',
-                'Posição': 'Short',
-                'Data': adjusted_timestamp,
-                'Preço': entry_price,
-                'StopLoss': stopLossShort,
-                'TakeProfit': takeProfitShort,
-                'Saldo': saldo
-            })
-
-    # Saída para long
-    if position_open and current_position == 'long':
-        if low_price.iloc[i] <= stopLossLong:
-            saldo = quantidade * stopLossLong
-            position_open = False
-            transactions.append({
-                'Tipo': 'Saída',
-                'Posição': 'Long',
-                'Data': adjusted_timestamp,
-                'Preço': stopLossLong,
-                'Motivo': 'Stop Loss',
-                'Saldo': saldo
-            })
-        elif high_price.iloc[i] >= takeProfitLong:
-            saldo = quantidade * takeProfitLong
-            position_open = False
-            transactions.append({
-                'Tipo': 'Saída',
-                'Posição': 'Long',
-                'Data': adjusted_timestamp,
-                'Preço': takeProfitLong,
-                'Motivo': 'Take Profit',
-                'Saldo': saldo
-            })
-        elif shortCondition.iloc[i]:
-            saldo = quantidade * close_price.iloc[i]
-            position_open = False
-            transactions.append({
-                'Tipo': 'Saída',
-                'Posição': 'Long',
-                'Data': adjusted_timestamp,
-                'Preço': close_price.iloc[i],
-                'Motivo': 'Inversão para Short',
-                'Saldo': saldo
-            })
-            # Entrada em Short após inversão
-            entry_price = close_price.iloc[i]
-            quantidade = saldo / entry_price
-            stopLossShort = entry_price * 1.12
-            takeProfitShort = entry_price * 0.77
-            position_open = True
-            current_position = 'short'
-            trade_count += 1
-            transactions.append({
-                'Tipo': 'Entrada',
-                'Posição': 'Short',
-                'Data': adjusted_timestamp,
-                'Preço': entry_price,
-                'StopLoss': stopLossShort,
-                'TakeProfit': takeProfitShort,
-                'Saldo': saldo
-            })
-
-    # Saída para short
-    elif position_open and current_position == 'short':
-        if high_price.iloc[i] >= stopLossShort:
-            saldo = saldo - (quantidade * (stopLossShort - entry_price))
-            position_open = False
-            transactions.append({
-                'Tipo': 'Saída',
-                'Posição': 'Short',
-                'Data': adjusted_timestamp,
-                'Preço': stopLossShort,
-                'Motivo': 'Stop Loss',
-                'Saldo': saldo
-            })
-        elif low_price.iloc[i] <= takeProfitShort:
-            saldo = saldo + (quantidade * (entry_price - takeProfitShort))
-            position_open = False
-            transactions.append({
-                'Tipo': 'Saída',
-                'Posição': 'Short',
-                'Data': adjusted_timestamp,
-                'Preço': takeProfitShort,
-                'Motivo': 'Take Profit',
-                'Saldo': saldo
-            })
-        elif longCondition.iloc[i]:
-            saldo = saldo + (quantidade * (entry_price - close_price.iloc[i]))
-            position_open = False
-            transactions.append({
-                'Tipo': 'Saída',
-                'Posição': 'Short',
-                'Data': adjusted_timestamp,
-                'Preço': close_price.iloc[i],
-                'Motivo': 'Inversão para Long',
-                'Saldo': saldo
-            })
-            # Entrada em Long após inversão
-            entry_price = close_price.iloc[i]
-            quantidade = saldo / entry_price
-            stopLossLong = entry_price * 0.92
-            takeProfitLong = entry_price * 1.32
-            position_open = True
-            current_position = 'long'
-            trade_count += 1
-            transactions.append({
-                'Tipo': 'Entrada',
-                'Posição': 'Long',
-                'Data': adjusted_timestamp,
-                'Preço': entry_price,
-                'StopLoss': stopLossLong,
-                'TakeProfit': takeProfitLong,
-                'Saldo': saldo
-            })
-
-# Exibir todas as transações com data
-transactions_df = pd.DataFrame(transactions)
-transactions_df['Data'] = pd.to_datetime(transactions_df['Data'])
-transactions_df = transactions_df.sort_values('Data')
-print("\nTodas as Transações:")
-print(transactions_df[['Tipo', 'Posição', 'Data', 'Preço', 'StopLoss', 'TakeProfit', 'Motivo', 'Saldo']].to_string(index=False))
-
-# Exibir o número total de trades
-print(f"\nNúmero total de trades: {trade_count}")
-
-# Imprimir o saldo final
-print(f"\nSaldo final: {saldo:.2f}")
+print(f"Total Profit: {total_profit}")
+print(f"Number of Trades: {number_of_trades}")
+print(f"Win Rate: {win_rate * 100:.2f}%")
