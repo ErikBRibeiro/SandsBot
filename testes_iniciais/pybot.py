@@ -22,7 +22,7 @@ rsiLength = 22  # Período do RSI
 macdShort = 15  # Período Curto MACD
 macdLong = 34  # Período Longo MACD
 macdSignal = 11  # Período de Sinal MACD
-adxLength = 16  # Período ADX (igual ao DI Length)
+adxLength = 16  # Período ADX
 adxThreshold = 12  # Nível de ADX para indicar tendência
 bbLength = 14  # Período do Bollinger Bands
 bbMultiplier = 1.7  # Multiplicador do Bollinger Bands
@@ -93,13 +93,13 @@ def get_adx_bt(high, low, close, period):
 
     return adx
 
-# Calcular os indicadores manuais e via TA-Lib
+# Calcular os indicadores
 emaShort = talib.EMA(close_price, emaShortLength)
 emaLong = talib.EMA(close_price, emaLongLength)
 rsi = talib.RSI(close_price, timeperiod=rsiLength)
 macdLine, signalLine, macdHist = macd(close_price, macdShort, macdLong, macdSignal)
 
-# Chamar a função get_adx_bt com o período desejado
+# Calcular o ADX
 adx = get_adx_bt(high_price, low_price, close_price, adxLength)
 
 # Bollinger Bands
@@ -132,7 +132,6 @@ entry_price = None  # Preço de entrada da posição
 orders = []
 trade_count = 0  # Contador de trades
 
-# Revisão na lógica de tendência para evitar inversões incorretas
 # Condição Long
 longCondition = (crossover(emaShort, emaLong)) & (rsi < 60) & (macdHist > 0.5) & trendingMarket
 
@@ -142,6 +141,9 @@ shortCondition = (crossunder(emaShort, emaLong)) & (rsi > 40) & (macdHist < -0.5
 # Loop para verificar e executar as ordens
 for i in range(len(df)):
     adjusted_timestamp = timestamp.iloc[i]
+
+    # Print do valor de ADX para cada vela
+    print(f"Data: {adjusted_timestamp}, ADX: {adx.iloc[i]:.2f}")
 
     # Estratégia de Mean Reversion para mercado lateral
     if isLateral.iloc[i]:
