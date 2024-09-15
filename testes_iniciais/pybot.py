@@ -5,7 +5,7 @@ import talib
 
 # Carregar o CSV com nome atualizado
 df = pd.read_csv('testes_iniciais/BYBIT_BTCUSDT.P_1h.csv')
-df['time'] = pd.to_datetime(df['time'], unit='s')
+
 
 # Atribuir os dados às variáveis
 timestamp = df['time']
