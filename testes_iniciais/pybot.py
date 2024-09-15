@@ -6,7 +6,6 @@ import talib
 # Carregar o CSV com nome atualizado
 df = pd.read_csv('testes_iniciais/BYBIT_BTCUSDT.P_1h.csv')
 df['time'] = pd.to_datetime(df['time'], unit='s')
-df.to_csv("BYBIT_BTCUSDT.P_1h.csv")
 
 # Atribuir os dados às variáveis
 timestamp = df['time']
@@ -113,7 +112,7 @@ quantidade = 0  # Quantidade de BTC comprada/vendida na transação
 position_open = False  # Indica se estamos em uma transação
 current_position = None  # 'long' ou 'short'
 entry_price = None  # Preço de entrada da posição
-orders = []
+transactions = []  # Lista para armazenar todas as transações
 trade_count = 0  # Contador de trades
 
 # Revisão na lógica de tendência para evitar inversões incorretas
@@ -126,6 +125,8 @@ shortCondition = (crossunder(emaShort, emaLong)) & (rsi > 40) & (macdHist < -0.5
 # Loop para verificar e executar as ordens
 for i in range(len(df)):
     adjusted_timestamp = timestamp.iloc[i]
+    date = adjusted_timestamp.date()
+    time = adjusted_timestamp.time()
 
     # Estratégia de Mean Reversion para mercado lateral
     if isLateral.iloc[i]:
@@ -135,10 +136,18 @@ for i in range(len(df)):
             quantidade = saldo / entry_price
             stopLossLong = entry_price * 0.973
             takeProfitLong = entry_price * 1.11
-            orders.append(f"entrar em transação (long) em {adjusted_timestamp} com preço {entry_price}, Stop Loss: {stopLossLong}, Take Profit: {takeProfitLong}")
             position_open = True
             current_position = 'long'
             trade_count += 1
+            transactions.append({
+                'Tipo': 'Entrada',
+                'Posição': 'Long',
+                'Data': adjusted_timestamp,
+                'Preço': entry_price,
+                'StopLoss': stopLossLong,
+                'TakeProfit': takeProfitLong,
+                'Saldo': saldo
+            })
 
         # Reversão para Short quando o preço cruza a banda superior para baixo
         elif (close_price.iloc[i] > upperBand.iloc[i]) and crossunder(close_price, upperBand).iloc[i]:
@@ -146,10 +155,18 @@ for i in range(len(df)):
             quantidade = saldo / entry_price
             stopLossShort = entry_price * 1.09
             takeProfitShort = entry_price * 0.973
-            orders.append(f"entrar em transação (short) em {adjusted_timestamp} com preço {entry_price}, Stop Loss: {stopLossShort}, Take Profit: {takeProfitShort}")
             position_open = True
             current_position = 'short'
             trade_count += 1
+            transactions.append({
+                'Tipo': 'Entrada',
+                'Posição': 'Short',
+                'Data': adjusted_timestamp,
+                'Preço': entry_price,
+                'StopLoss': stopLossShort,
+                'TakeProfit': takeProfitShort,
+                'Saldo': saldo
+            })
 
     # Se não há uma posição aberta e o mercado não está lateral
     if not position_open and not isLateral.iloc[i]:
@@ -158,81 +175,151 @@ for i in range(len(df)):
             quantidade = saldo / entry_price
             stopLossLong = entry_price * 0.92
             takeProfitLong = entry_price * 1.32
-            orders.append(f"entrar em transação (long) em {adjusted_timestamp} com preço {entry_price}, Stop Loss: {stopLossLong}, Take Profit: {takeProfitLong}")
             position_open = True
             current_position = 'long'
             trade_count += 1
+            transactions.append({
+                'Tipo': 'Entrada',
+                'Posição': 'Long',
+                'Data': adjusted_timestamp,
+                'Preço': entry_price,
+                'StopLoss': stopLossLong,
+                'TakeProfit': takeProfitLong,
+                'Saldo': saldo
+            })
         elif shortCondition.iloc[i]:
             entry_price = close_price.iloc[i]
             quantidade = saldo / entry_price
             stopLossShort = entry_price * 1.12
             takeProfitShort = entry_price * 0.77
-            orders.append(f"entrar em transação (short) em {adjusted_timestamp} com preço {entry_price}, Stop Loss: {stopLossShort}, Take Profit: {takeProfitShort}")
             position_open = True
             current_position = 'short'
             trade_count += 1
+            transactions.append({
+                'Tipo': 'Entrada',
+                'Posição': 'Short',
+                'Data': adjusted_timestamp,
+                'Preço': entry_price,
+                'StopLoss': stopLossShort,
+                'TakeProfit': takeProfitShort,
+                'Saldo': saldo
+            })
 
     # Saída para long
     if position_open and current_position == 'long':
         if low_price.iloc[i] <= stopLossLong:
             saldo = quantidade * stopLossLong
-            orders.append(f"sair de transação (long) em {adjusted_timestamp} com preço {stopLossLong} (Stoploss), saldo atualizado: {saldo:.2f}")
             position_open = False
+            transactions.append({
+                'Tipo': 'Saída',
+                'Posição': 'Long',
+                'Data': adjusted_timestamp,
+                'Preço': stopLossLong,
+                'Motivo': 'Stop Loss',
+                'Saldo': saldo
+            })
         elif high_price.iloc[i] >= takeProfitLong:
             saldo = quantidade * takeProfitLong
-            orders.append(f"sair de transação (long) em {adjusted_timestamp} com preço {takeProfitLong} (Take Profit), saldo atualizado: {saldo:.2f}")
             position_open = False
+            transactions.append({
+                'Tipo': 'Saída',
+                'Posição': 'Long',
+                'Data': adjusted_timestamp,
+                'Preço': takeProfitLong,
+                'Motivo': 'Take Profit',
+                'Saldo': saldo
+            })
         elif shortCondition.iloc[i]:
             saldo = quantidade * close_price.iloc[i]
-            orders.append(f"sair de transação (long) em {adjusted_timestamp} com preço {close_price.iloc[i]} (Inversão para Short), saldo atualizado: {saldo:.2f}")
+            position_open = False
+            transactions.append({
+                'Tipo': 'Saída',
+                'Posição': 'Long',
+                'Data': adjusted_timestamp,
+                'Preço': close_price.iloc[i],
+                'Motivo': 'Inversão para Short',
+                'Saldo': saldo
+            })
+            # Entrada em Short após inversão
             entry_price = close_price.iloc[i]
             quantidade = saldo / entry_price
             stopLossShort = entry_price * 1.12
             takeProfitShort = entry_price * 0.77
-            orders.append(f"entrar em transação (short) em {adjusted_timestamp} com preço {entry_price}, Stop Loss: {stopLossShort}, Take Profit: {takeProfitShort}")
+            position_open = True
             current_position = 'short'
             trade_count += 1
+            transactions.append({
+                'Tipo': 'Entrada',
+                'Posição': 'Short',
+                'Data': adjusted_timestamp,
+                'Preço': entry_price,
+                'StopLoss': stopLossShort,
+                'TakeProfit': takeProfitShort,
+                'Saldo': saldo
+            })
 
     # Saída para short
     elif position_open and current_position == 'short':
         if high_price.iloc[i] >= stopLossShort:
             saldo = saldo - (quantidade * (stopLossShort - entry_price))
-            orders.append(f"sair de transação (short) em {adjusted_timestamp} com preço {stopLossShort} (Stoploss), saldo atualizado: {saldo:.2f}")
             position_open = False
+            transactions.append({
+                'Tipo': 'Saída',
+                'Posição': 'Short',
+                'Data': adjusted_timestamp,
+                'Preço': stopLossShort,
+                'Motivo': 'Stop Loss',
+                'Saldo': saldo
+            })
         elif low_price.iloc[i] <= takeProfitShort:
             saldo = saldo + (quantidade * (entry_price - takeProfitShort))
-            orders.append(f"sair de transação (short) em {adjusted_timestamp} com preço {takeProfitShort} (Take Profit), saldo atualizado: {saldo:.2f}")
             position_open = False
+            transactions.append({
+                'Tipo': 'Saída',
+                'Posição': 'Short',
+                'Data': adjusted_timestamp,
+                'Preço': takeProfitShort,
+                'Motivo': 'Take Profit',
+                'Saldo': saldo
+            })
         elif longCondition.iloc[i]:
             saldo = saldo + (quantidade * (entry_price - close_price.iloc[i]))
-            orders.append(f"sair de transação (short) em {adjusted_timestamp} com preço {close_price.iloc[i]} (Inversão para Long), saldo atualizado: {saldo:.2f}")
+            position_open = False
+            transactions.append({
+                'Tipo': 'Saída',
+                'Posição': 'Short',
+                'Data': adjusted_timestamp,
+                'Preço': close_price.iloc[i],
+                'Motivo': 'Inversão para Long',
+                'Saldo': saldo
+            })
+            # Entrada em Long após inversão
             entry_price = close_price.iloc[i]
             quantidade = saldo / entry_price
             stopLossLong = entry_price * 0.92
             takeProfitLong = entry_price * 1.32
-            orders.append(f"entrar em transação (long) em {adjusted_timestamp} com preço {entry_price}, Stop Loss: {stopLossLong}, Take Profit: {takeProfitLong}")
+            position_open = True
             current_position = 'long'
             trade_count += 1
+            transactions.append({
+                'Tipo': 'Entrada',
+                'Posição': 'Long',
+                'Data': adjusted_timestamp,
+                'Preço': entry_price,
+                'StopLoss': stopLossLong,
+                'TakeProfit': takeProfitLong,
+                'Saldo': saldo
+            })
 
-# Exibir as ordens geradas
-for order in orders:
-    print(order)
+# Exibir todas as transações com data
+transactions_df = pd.DataFrame(transactions)
+transactions_df['Data'] = pd.to_datetime(transactions_df['Data'])
+transactions_df = transactions_df.sort_values('Data')
+print("\nTodas as Transações:")
+print(transactions_df[['Tipo', 'Posição', 'Data', 'Preço', 'StopLoss', 'TakeProfit', 'Motivo', 'Saldo']].to_string(index=False))
 
 # Exibir o número total de trades
-print(f"\nTotal de trades: {trade_count}")
-
-# Imprimir os valores do ADX, DI+ e DI- para cada vela
-print("\nValores do ADX, DI+ e DI- para cada vela:")
-for i in range(len(df)):
-    adjusted_timestamp = timestamp.iloc[i]
-    date = adjusted_timestamp.date()
-    time = adjusted_timestamp.time()
-    current_adx = adx.iloc[i]
-    trending = current_adx > adxThreshold
-    print(f"Data: {date}, Hora: {time}, ADX: {current_adx:.2f}, Tendência: {trending}")
+print(f"\nNúmero total de trades: {trade_count}")
 
 # Imprimir o saldo final
 print(f"\nSaldo final: {saldo:.2f}")
-
-# Imprimir o número total de trades (adicionado conforme solicitado)
-print(f"\nNúmero total de trades: {trade_count}")
