@@ -1,6 +1,9 @@
 from datetime import datetime
 import backtrader as bt
 
+
+lista = []
+
 class ADXStrategy(bt.Strategy):
     adx_period = 16
     adx_threshold = 12
@@ -37,9 +40,10 @@ if __name__ == '__main__':
         volume=-1,
         openinterest=-1,
     )
+
     cerebro.adddata(data)
     cerebro.addstrategy(ADXStrategy)
-    cerebro.broker.setcash(1000000)
+
     cerebro.addanalyzer(bt.analyzers.Transactions, _name='transactions')
 
     strat = cerebro.run()[0]

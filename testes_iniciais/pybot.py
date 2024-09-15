@@ -3,6 +3,11 @@ import numpy as np
 from datetime import datetime, timedelta
 import talib
 
+from adx_pedro.adx.main import ADXStrategy
+
+teste = ADXStrategy
+print(teste)
+
 # Carregar o CSV com nome atualizado
 df = pd.read_csv('testes_iniciais/BYBIT_BTCUSDT.P_1h.csv')
 df['time'] = pd.to_datetime(df['time'], unit='s')
@@ -137,13 +142,13 @@ for i in range(len(df)):
     adjusted_timestamp = timestamp[i]
 
     # Exibir os valores dos indicadores manuais para cada vela
-    print(f"Vela: {adjusted_timestamp}")
-    print(f"EMA Curta: {emaShort[i]}, EMA Longa: {emaLong[i]}")
-    print(f"RSI: {rsi[i]}")
-    print(f"MACD Line: {macdLine[i]}, Signal Line: {signalLine[i]}, MACD Hist: {macdHist[i]}")
-    print(f"ADX: {adx[i]}")
-    print(f"Bollinger Upper: {upperBand[i]}, Bollinger Lower: {lowerBand[i]}")
-    print("-" * 50)
+#    print(f"Vela: {adjusted_timestamp}")
+#    print(f"EMA Curta: {emaShort[i]}, EMA Longa: {emaLong[i]}")
+#    print(f"RSI: {rsi[i]}")
+#    print(f"MACD Line: {macdLine[i]}, Signal Line: {signalLine[i]}, MACD Hist: {macdHist[i]}")
+#    print(f"ADX: {adx[i]}")
+#    print(f"Bollinger Upper: {upperBand[i]}, Bollinger Lower: {lowerBand[i]}")
+#    print("-" * 50)
 
     # Estratégia de Mean Reversion para mercado lateral
     if isLateral[i]:
