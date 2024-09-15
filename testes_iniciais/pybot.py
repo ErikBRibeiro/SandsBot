@@ -22,7 +22,8 @@ rsiLength = 22  # Período do RSI
 macdShort = 15  # Período Curto MACD
 macdLong = 34  # Período Longo MACD
 macdSignal = 11  # Período de Sinal MACD
-adxLength = 16  # Período ADX
+adxLength = 16  # Período ADX (igual ao DI Length)
+adxSmoothing = 13  # ADX Smoothing
 adxThreshold = 12  # Nível de ADX para indicar tendência
 bbLength = 14  # Período do Bollinger Bands
 bbMultiplier = 1.7  # Multiplicador do Bollinger Bands
@@ -37,70 +38,51 @@ def macd(series, fast_period, slow_period, signal_period):
     macd_hist = macd_line - signal_line
     return macd_line, signal_line, macd_hist
 
-# Função para calcular o ADX conforme o Backtrader
-def get_adx_bt(high, low, close, period):
-    high = np.array(high)
-    low = np.array(low)
-    close = np.array(close)
+def get_adx_manual(high, low, close, di_lookback, adx_smoothing):
+    tr = []
+    previous_close = close[0]
+    plus_dm = []
+    minus_dm = []
 
-    tr = np.maximum.reduce([
-        high[1:] - low[1:],
-        np.abs(high[1:] - close[:-1]),
-        np.abs(low[1:] - close[:-1])
-    ])
-    tr = np.insert(tr, 0, np.nan)
+    for i in range(1, len(close)):
+        current_plus_dm = high[i] - high[i-1]
+        current_minus_dm = low[i-1] - low[i]
+        plus_dm.append(max(current_plus_dm, 0) if current_plus_dm > current_minus_dm else 0)
+        minus_dm.append(max(current_minus_dm, 0) if current_minus_dm > current_plus_dm else 0)
+        
+        tr1 = high[i] - low[i]
+        tr2 = abs(high[i] - previous_close)
+        tr3 = abs(low[i] - previous_close)
+        true_range = max(tr1, tr2, tr3)
+        tr.append(true_range)
+        
+        previous_close = close[i]
+    
+    tr.insert(0, None)
+    plus_dm.insert(0, None)
+    minus_dm.insert(0, None)
+    
+    tr = pd.Series(tr)
+    plus_dm = pd.Series(plus_dm)
+    minus_dm = pd.Series(minus_dm)
+    
+    atr = tr.rolling(window=di_lookback).mean()
+    
+    plus_di = 100 * (plus_dm.ewm(alpha=1/di_lookback).mean() / atr)
+    minus_di = 100 * (minus_dm.ewm(alpha=1/di_lookback).mean() / atr)
+    
+    dx = (abs(plus_di - minus_di) / (plus_di + minus_di)) * 100
+    
+    adx = dx.ewm(alpha=1/adx_smoothing).mean()
+    
+    return plus_di, minus_di, adx
 
-    plus_dm = np.where((high[1:] - high[:-1]) > (low[:-1] - low[1:]),
-                       np.maximum(high[1:] - high[:-1], 0),
-                       0)
-    minus_dm = np.where((low[:-1] - low[1:]) > (high[1:] - high[:-1]),
-                        np.maximum(low[:-1] - low[1:], 0),
-                        0)
-    plus_dm = np.insert(plus_dm, 0, np.nan)
-    minus_dm = np.insert(minus_dm, 0, np.nan)
-
-    atr = np.zeros_like(tr)
-    plus_dm_smooth = np.zeros_like(plus_dm)
-    minus_dm_smooth = np.zeros_like(minus_dm)
-
-    # Inicialização dos valores suavizados
-    atr[period - 1] = np.nansum(tr[period - 1:2 * period - 1])
-    plus_dm_smooth[period - 1] = np.nansum(plus_dm[period - 1:2 * period - 1])
-    minus_dm_smooth[period - 1] = np.nansum(minus_dm[period - 1:2 * period - 1])
-
-    # Suavização de Wilder
-    for i in range(period, len(tr)):
-        atr[i] = atr[i - 1] - (atr[i - 1] / period) + tr[i]
-        plus_dm_smooth[i] = plus_dm_smooth[i - 1] - (plus_dm_smooth[i - 1] / period) + plus_dm[i]
-        minus_dm_smooth[i] = minus_dm_smooth[i - 1] - (minus_dm_smooth[i - 1] / period) + minus_dm[i]
-
-    # Calcular DI+
-    plus_di = 100 * (plus_dm_smooth / atr)
-    # Calcular DI-
-    minus_di = 100 * (minus_dm_smooth / atr)
-
-    # Calcular DX
-    dx = 100 * (np.abs(plus_di - minus_di) / (plus_di + minus_di))
-
-    # Calcular ADX
-    adx = np.zeros_like(dx)
-    adx[:2 * period - 1] = np.nan
-    adx[2 * period - 1] = np.nanmean(dx[period:2 * period])
-
-    # Suavização do ADX
-    for i in range(2 * period, len(dx)):
-        adx[i] = ((adx[i - 1] * (period - 1)) + dx[i]) / period
-
-    return adx
-
-# Calcular os indicadores
+# Calcular os indicadores manuais e via TA-Lib
 emaShort = talib.EMA(close_price, emaShortLength)
 emaLong = talib.EMA(close_price, emaLongLength)
 rsi = talib.RSI(close_price, timeperiod=rsiLength)
 macdLine, signalLine, macdHist = macd(close_price, macdShort, macdLong, macdSignal)
-
-# Calcular o ADX
-adx = get_adx_bt(high_price, low_price, close_price, adxLength)
+plus_di, minus_di, adx = get_adx_manual(high_price, low_price, close_price, adxLength, adxSmoothing)
 
 # Bollinger Bands
 upperBand, middleBand, lowerBand = talib.BBANDS(close_price, timeperiod=bbLength, nbdevup=bbMultiplier, nbdevdn=bbMultiplier, matype=0)
@@ -112,9 +94,6 @@ def crossover(series1, series2):
 # Função para detectar crossunder (cruzamento descendente)
 def crossunder(series1, series2):
     return (series1 < series2) & (series1.shift(1) >= series2.shift(1))
-
-# Converter adx para Series do pandas e alinhar com o DataFrame original
-adx = pd.Series(adx, index=df.index)
 
 # Condição de mercado em tendência (baseada no ADX)
 trendingMarket = adx > adxThreshold
@@ -132,6 +111,7 @@ entry_price = None  # Preço de entrada da posição
 orders = []
 trade_count = 0  # Contador de trades
 
+# Revisão na lógica de tendência para evitar inversões incorretas
 # Condição Long
 longCondition = (crossover(emaShort, emaLong)) & (rsi < 60) & (macdHist > 0.5) & trendingMarket
 
@@ -140,92 +120,92 @@ shortCondition = (crossunder(emaShort, emaLong)) & (rsi > 40) & (macdHist < -0.5
 
 # Loop para verificar e executar as ordens
 for i in range(len(df)):
-    adjusted_timestamp = timestamp.iloc[i]
+    adjusted_timestamp = timestamp[i]
 
     # Estratégia de Mean Reversion para mercado lateral
-    if isLateral.iloc[i]:
+    if isLateral[i]:
         # Reversão para Long quando o preço cruza a banda inferior para cima
-        if (close_price.iloc[i] < lowerBand.iloc[i]) and crossover(close_price, lowerBand).iloc[i]:
-            entry_price = close_price.iloc[i]
+        if (close_price[i] < lowerBand[i]) and crossover(close_price, lowerBand)[i]:
+            entry_price = close_price[i]
             quantidade = saldo / entry_price
             stopLossLong = entry_price * 0.973
             takeProfitLong = entry_price * 1.11
-            orders.append(f"Entrar em transação (long) em {adjusted_timestamp} com preço {entry_price}, Stop Loss: {stopLossLong}, Take Profit: {takeProfitLong}")
+            orders.append(f"entrar em transação (long) em {adjusted_timestamp} com preço {entry_price}, Stop Loss: {stopLossLong}, Take Profit: {takeProfitLong}")
             position_open = True
             current_position = 'long'
             trade_count += 1
 
         # Reversão para Short quando o preço cruza a banda superior para baixo
-        elif (close_price.iloc[i] > upperBand.iloc[i]) and crossunder(close_price, upperBand).iloc[i]:
-            entry_price = close_price.iloc[i]
+        elif (close_price[i] > upperBand[i]) and crossunder(close_price, upperBand)[i]:
+            entry_price = close_price[i]
             quantidade = saldo / entry_price
             stopLossShort = entry_price * 1.09
             takeProfitShort = entry_price * 0.973
-            orders.append(f"Entrar em transação (short) em {adjusted_timestamp} com preço {entry_price}, Stop Loss: {stopLossShort}, Take Profit: {takeProfitShort}")
+            orders.append(f"entrar em transação (short) em {adjusted_timestamp} com preço {entry_price}, Stop Loss: {stopLossShort}, Take Profit: {takeProfitShort}")
             position_open = True
             current_position = 'short'
             trade_count += 1
 
     # Se não há uma posição aberta e o mercado não está lateral
-    if not position_open and not isLateral.iloc[i]:
-        if longCondition.iloc[i]:
-            entry_price = close_price.iloc[i]
+    if not position_open and not isLateral[i]:
+        if longCondition[i]:
+            entry_price = close_price[i]
             quantidade = saldo / entry_price
             stopLossLong = entry_price * 0.92
             takeProfitLong = entry_price * 1.32
-            orders.append(f"Entrar em transação (long) em {adjusted_timestamp} com preço {entry_price}, Stop Loss: {stopLossLong}, Take Profit: {takeProfitLong}")
+            orders.append(f"entrar em transação (long) em {adjusted_timestamp} com preço {entry_price}, Stop Loss: {stopLossLong}, Take Profit: {takeProfitLong}")
             position_open = True
             current_position = 'long'
             trade_count += 1
-        elif shortCondition.iloc[i]:
-            entry_price = close_price.iloc[i]
+        elif shortCondition[i]:
+            entry_price = close_price[i]
             quantidade = saldo / entry_price
             stopLossShort = entry_price * 1.12
             takeProfitShort = entry_price * 0.77
-            orders.append(f"Entrar em transação (short) em {adjusted_timestamp} com preço {entry_price}, Stop Loss: {stopLossShort}, Take Profit: {takeProfitShort}")
+            orders.append(f"entrar em transação (short) em {adjusted_timestamp} com preço {entry_price}, Stop Loss: {stopLossShort}, Take Profit: {takeProfitShort}")
             position_open = True
             current_position = 'short'
             trade_count += 1
 
     # Saída para long
     if position_open and current_position == 'long':
-        if low_price.iloc[i] <= stopLossLong:
+        if low_price[i] <= stopLossLong:
             saldo = quantidade * stopLossLong
-            orders.append(f"Sair de transação (long) em {adjusted_timestamp} com preço {stopLossLong} (Stoploss), saldo atualizado: {saldo:.2f}")
+            orders.append(f"sair de transação (long) em {adjusted_timestamp} com preço {stopLossLong} (Stoploss), saldo atualizado: {saldo:.2f}")
             position_open = False
-        elif high_price.iloc[i] >= takeProfitLong:
+        elif high_price[i] >= takeProfitLong:
             saldo = quantidade * takeProfitLong
-            orders.append(f"Sair de transação (long) em {adjusted_timestamp} com preço {takeProfitLong} (Take Profit), saldo atualizado: {saldo:.2f}")
+            orders.append(f"sair de transação (long) em {adjusted_timestamp} com preço {takeProfitLong} (Take Profit), saldo atualizado: {saldo:.2f}")
             position_open = False
-        elif shortCondition.iloc[i]:
-            saldo = quantidade * close_price.iloc[i]
-            orders.append(f"Sair de transação (long) em {adjusted_timestamp} com preço {close_price.iloc[i]} (Inversão para Short), saldo atualizado: {saldo:.2f}")
-            entry_price = close_price.iloc[i]
+        elif shortCondition[i]:
+            saldo = quantidade * close_price[i]
+            orders.append(f"sair de transação (long) em {adjusted_timestamp} com preço {close_price[i]} (Inversão para Short), saldo atualizado: {saldo:.2f}")
+            entry_price = close_price[i]
             quantidade = saldo / entry_price
             stopLossShort = entry_price * 1.12
             takeProfitShort = entry_price * 0.77
-            orders.append(f"Entrar em transação (short) em {adjusted_timestamp} com preço {entry_price}, Stop Loss: {stopLossShort}, Take Profit: {takeProfitShort}")
+            orders.append(f"entrar em transação (short) em {adjusted_timestamp} com preço {entry_price}, Stop Loss: {stopLossShort}, Take Profit: {takeProfitShort}")
             current_position = 'short'
             trade_count += 1
 
     # Saída para short
     elif position_open and current_position == 'short':
-        if high_price.iloc[i] >= stopLossShort:
+        if high_price[i] >= stopLossShort:
             saldo = saldo - (quantidade * (stopLossShort - entry_price))
-            orders.append(f"Sair de transação (short) em {adjusted_timestamp} com preço {stopLossShort} (Stoploss), saldo atualizado: {saldo:.2f}")
+            orders.append(f"sair de transação (short) em {adjusted_timestamp} com preço {stopLossShort} (Stoploss), saldo atualizado: {saldo:.2f}")
             position_open = False
-        elif low_price.iloc[i] <= takeProfitShort:
+        elif low_price[i] <= takeProfitShort:
             saldo = saldo + (quantidade * (entry_price - takeProfitShort))
-            orders.append(f"Sair de transação (short) em {adjusted_timestamp} com preço {takeProfitShort} (Take Profit), saldo atualizado: {saldo:.2f}")
+            orders.append(f"sair de transação (short) em {adjusted_timestamp} com preço {takeProfitShort} (Take Profit), saldo atualizado: {saldo:.2f}")
             position_open = False
-        elif longCondition.iloc[i]:
-            saldo = saldo + (quantidade * (entry_price - close_price.iloc[i]))
-            orders.append(f"Sair de transação (short) em {adjusted_timestamp} com preço {close_price.iloc[i]} (Inversão para Long), saldo atualizado: {saldo:.2f}")
-            entry_price = close_price.iloc[i]
+        elif longCondition[i]:
+            saldo = saldo + (quantidade * (entry_price - close_price[i]))
+            orders.append(f"sair de transação (short) em {adjusted_timestamp} com preço {close_price[i]} (Inversão para Long), saldo atualizado: {saldo:.2f}")
+            entry_price = close_price[i]
             quantidade = saldo / entry_price
             stopLossLong = entry_price * 0.92
             takeProfitLong = entry_price * 1.32
-            orders.append(f"Entrar em transação (long) em {adjusted_timestamp} com preço {entry_price}, Stop Loss: {stopLossLong}, Take Profit: {takeProfitLong}")
+            orders.append(f"entrar em transação (long) em {adjusted_timestamp} com preço {entry_price}, Stop Loss: {stopLossLong}, Take Profit: {takeProfitLong}")
             current_position = 'long'
             trade_count += 1
 
@@ -236,7 +216,14 @@ for order in orders:
 # Exibir o número total de trades
 print(f"Total de trades: {trade_count}")
 
-# Exibir os valores de ADX ao final do código
-adx_values = pd.DataFrame({'Data': timestamp, 'ADX': adx})
-print("\nValores de ADX para cada vela:")
-print(adx_values.to_string(index=False))
+# Imprimir os valores do ADX, DI+ e DI- para cada vela
+print("\nValores do ADX, DI+ e DI- para cada vela:")
+for i in range(len(df)):
+    adjusted_timestamp = timestamp[i]
+    date = adjusted_timestamp.date()
+    time = adjusted_timestamp.time()
+    current_adx = adx[i]
+    current_plus_di = plus_di[i]
+    current_minus_di = minus_di[i]
+    trending = current_adx > adxThreshold
+    print(f"Data: {date}, Hora: {time}, ADX: {current_adx:.2f}, DI+: {current_plus_di:.2f}, DI-: {current_minus_di:.2f}, Tendência: {trending}")
