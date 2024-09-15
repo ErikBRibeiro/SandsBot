@@ -2,11 +2,9 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 import talib
-import backtrader as bt
-
 
 # Carregar o CSV com nome atualizado
-df = pd.read_csv('testes_iniciais/BYBIT_BTCUSDT.P_1h.csv')
+df = pd.read_csv('BYBIT_BTCUSDT.P_1h.csv')
 df['time'] = pd.to_datetime(df['time'], unit='s')
 
 # Atribuir os dados às variáveis
@@ -40,16 +38,65 @@ def macd(series, fast_period, slow_period, signal_period):
     macd_hist = macd_line - signal_line
     return macd_line, signal_line, macd_hist
 
-macdLine, signalLine, macdHist = macd(close_price, macdShort, macdLong, macdSignal)
+def get_adx_manual(high, low, close, di_lookback, adx_smoothing):
+    # Inicializando listas para armazenar os resultados
+    tr = []
+    previous_close = close[0]  # Primeiro valor de fechamento
+    
+    plus_dm = []
+    minus_dm = []
 
-adx = bt.indicators.ADX(df, period=adxLength)
-plus_di = bt.indicators.PlusDI(df, period=adxLength)
-minus_di = bt.indicators.MinusDI(df, period=adxLength)
+    for i in range(1, len(close)):
+        # Calcular +DM e -DM
+        current_plus_dm = high[i] - high[i-1]
+        current_minus_dm = low[i-1] - low[i]
+        plus_dm.append(max(current_plus_dm, 0) if current_plus_dm > current_minus_dm else 0)
+        minus_dm.append(max(current_minus_dm, 0) if current_minus_dm > current_plus_dm else 0)
+        
+        # Calcular True Range (TR)
+        tr1 = high[i] - low[i]
+        tr2 = abs(high[i] - previous_close)
+        tr3 = abs(low[i] - previous_close)
+        true_range = max(tr1, tr2, tr3)
+        tr.append(true_range)
+        
+        # Atualizar o fechamento anterior
+        previous_close = close[i]
+    
+    # Adiciona um valor NaN para a primeira posição, pois não há fechamento anterior para calcular
+    tr.insert(0, None)
+    plus_dm.insert(0, None)
+    minus_dm.insert(0, None)
+    
+    # Converter listas para Series do pandas
+    tr = pd.Series(tr)
+    plus_dm = pd.Series(plus_dm)
+    minus_dm = pd.Series(minus_dm)
+    
+    # Calcular o ATR usando o lookback fornecido para DI
+    atr = tr.rolling(window=di_lookback).mean()
+    
+    # Calcular DI+ e DI- com o lookback de DI
+    plus_di = 100 * (plus_dm.ewm(alpha=1/di_lookback).mean() / atr)
+    minus_di = 100 * (minus_dm.ewm(alpha=1/di_lookback).mean() / atr)
+    
+    # Calcular o DX
+    dx = (abs(plus_di - minus_di) / (plus_di + minus_di)) * 100
+    
+    # Calcular o ADX usando o smoothing específico para o ADX
+    adx = dx.ewm(alpha=1/adx_smoothing).mean()
+    
+    # Retornar os valores calculados
+    return plus_di, minus_di, adx
+
 
 # Calcular os indicadores manuais e via TA-Lib
 emaShort = talib.EMA(close_price, emaShortLength)
 emaLong = talib.EMA(close_price, emaLongLength)
 rsi = talib.RSI(close_price, timeperiod=rsiLength)
+macdLine, signalLine, macdHist = macd(close_price, macdShort, macdLong, macdSignal)
+# Chamar a função get_adx com períodos diferentes para DI e ADX
+plus_di, minus_di, adx = get_adx_manual(high_price, low_price, close_price, adxLength, adxSmoothing)
 
 # Bollinger Bands (mantendo o cálculo via TA-Lib)
 upperBand, middleBand, lowerBand = talib.BBANDS(close_price, timeperiod=bbLength, nbdevup=bbMultiplier, nbdevdn=bbMultiplier, matype=0)
