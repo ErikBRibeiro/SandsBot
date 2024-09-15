@@ -1,115 +1,433 @@
-import threading
+import pandas as pd
+import numpy as np
+from datetime import datetime, timedelta
+import talib
+import os
 import time
-from config import API_KEY, API_SECRET
-from data_interface import LiveData
-from strategy import TradingStrategy
-from metrics import Metrics, start_prometheus_server
-from src.utils import read_trade_history, logger
-from src.parameters import ativo, timeframe, setup
+from dotenv import load_dotenv
+from pybit import usdt_perpetual
+import logging
 
-#start_prometheus_server()
+# Load API key and secret from .env file
+load_dotenv()
+API_KEY = os.getenv('API_KEY')
+API_SECRET = os.getenv('API_SECRET')
 
-def check_last_transaction(data_interface, symbol, last_log_time):
+# Initialize Bybit client for USDT perpetual contracts
+session = usdt_perpetual.HTTP(
+    endpoint="https://api.bybit.com",  # Use 'https://api-testnet.bybit.com' for testnet
+    api_key=API_KEY,
+    api_secret=API_SECRET
+)
+
+symbol = 'BTCUSDT'
+
+# Set up logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler("bot_log.log"),
+        logging.StreamHandler()
+    ]
+)
+
+# Function to fetch historical kline data
+def get_historical_klines(symbol, interval, limit):
+    now = int(time.time())
+    from_time = now - (limit * interval * 60)
+    kline = session.query_kline(
+        symbol=symbol,
+        interval=str(interval),
+        **{'from': from_time},  # 'from' is a reserved keyword, use kwargs
+        limit=limit
+    )
+    kline_data = kline['result']
+    df = pd.DataFrame(kline_data)
+    return df
+
+# Function to calculate indicators
+def calculate_indicators(df):
+    close_price = df['close']
+    high_price = df['high']
+    low_price = df['low']
+
+    # Parameters
+    emaShortLength = 11
+    emaLongLength = 55
+    rsiLength = 22
+    macdShort = 15
+    macdLong = 34
+    macdSignal = 11
+    adxLength = 16
+    adxSmoothing = 13
+    adxThreshold = 12
+    bbLength = 14
+    bbMultiplier = 1.7
+    lateralThreshold = 0.005
+
+    # Calculating indicators using TA-Lib
+    emaShort = talib.EMA(close_price, emaShortLength)
+    emaLong = talib.EMA(close_price, emaLongLength)
+    rsi = talib.RSI(close_price, timeperiod=rsiLength)
+    macdLine, signalLine, macdHist = talib.MACD(
+        close_price, fastperiod=macdShort, slowperiod=macdLong, signalperiod=macdSignal
+    )
+    upperBand, middleBand, lowerBand = talib.BBANDS(
+        close_price, timeperiod=bbLength, nbdevup=bbMultiplier, nbdevdn=bbMultiplier
+    )
+    adx = talib.ADX(high_price, low_price, close_price, timeperiod=adxSmoothing)
+    bandWidth = (upperBand - lowerBand) / middleBand
+    isLateral = bandWidth < lateralThreshold
+
+    df['emaShort'] = emaShort
+    df['emaLong'] = emaLong
+    df['rsi'] = rsi
+    df['macdHist'] = macdHist
+    df['adx'] = adx
+    df['upperBand'] = upperBand
+    df['middleBand'] = middleBand
+    df['lowerBand'] = lowerBand
+    df['bandWidth'] = bandWidth
+    df['isLateral'] = isLateral
+
+    return df
+
+# Helper functions for crossover logic
+def crossover(series1, series2):
+    cross = (series1 > series2) & (series1.shift(1) <= series2.shift(1))
+    return cross
+
+def crossunder(series1, series2):
+    cross = (series1 < series2) & (series1.shift(1) >= series2.shift(1))
+    return cross
+
+# Function to get current position
+def get_current_position():
+    position_data = session.my_position(symbol=symbol)
+    positions = position_data['result']
+    for pos in positions:
+        if float(pos['size']) > 0:
+            side = pos['side']
+            entry_price = float(pos['entry_price'])
+            size = float(pos['size'])
+            return side.lower(), {'entry_price': entry_price, 'size': size, 'side': side}
+    return None, None
+
+# Function to fetch the latest price
+def get_latest_price():
+    ticker = session.latest_information_for_symbol(symbol=symbol)
+    price = float(ticker['result'][0]['last_price'])
+    return price
+
+# Trading parameters
+stopgain_lateral_long = 1.11
+stoploss_lateral_long = 0.973
+stopgain_lateral_short = 0.973
+stoploss_lateral_short = 1.09
+stopgain_normal_long = 1.32
+stoploss_normal_long = 0.92
+stopgain_normal_short = 0.77
+stoploss_normal_short = 1.12
+
+trade_count = 0  # Counter for the number of trades
+
+# Initialize variables
+last_candle_time = None  # To keep track of when to update indicators
+last_log_time = None     # To keep track of logging every 10 minutes
+previous_isLateral = None  # To detect transition into lateral market
+
+# Main trading loop
+while True:
     try:
-        response = data_interface.client.get_positions(symbol=symbol, category="linear", limit=1)
-        if 'result' not in response or 'list' not in response['result'] or len(response['result']['list']) == 0:
-            logger.info("Nenhuma posição encontrada. Considerando executar uma compra...")
-            return False, last_log_time
-        
-        position = response['result']['list'][0]
-        size = float(position['size'])
-        current_time = time.time()
-        if size > 0:
-            return True, last_log_time
-        else:
-            # Logar a cada 10 minutos
-            if current_time - last_log_time >= 600:  # 600 segundos = 10 minutos
-                logger.info("Posição aberta tem tamanho 0, pode considerar comprar.")
-                last_log_time = current_time
-            return False, last_log_time
-    except Exception as e:
-        logger.error(f"Erro ao verificar a última transação: {e}")
-        return False, last_log_time
+        current_time = datetime.utcnow()
+        # Check if it's time to update the indicators (every hour)
+        if last_candle_time is None or current_time.minute == 0 and current_time.minute != last_candle_time.minute:
+            # Fetch the latest 1-hour kline data
+            df = get_historical_klines(symbol, interval=60, limit=200)
+            df['open_time'] = pd.to_datetime(df['open_time'], unit='s')
+            df['open'] = df['open'].astype(float)
+            df['high'] = df['high'].astype(float)
+            df['low'] = df['low'].astype(float)
+            df['close'] = df['close'].astype(float)
+            df['volume'] = df['volume'].astype(float)
+            df = df.sort_values('open_time')
 
-def check_open_position(data_interface, symbol):
-    try:
-        response = data_interface.client.get_positions(symbol=symbol)
-        
-        if not response or 'result' not in response or len(response['result']) == 0:
-            logger.info("Nenhuma posição aberta encontrada.")
-            return None
-        
-        position = response['result'][0]
-        side = position['side']
-        size = float(position['size'])
+            # Calculate indicators
+            df = calculate_indicators(df)
 
-        if size > 0:
-            return side
-        else:
-            return None
-    except Exception as e:
-        logger.error(f"Erro ao verificar posição aberta: {e}")
-        return None
+            # Get the latest data point
+            last_row = df.iloc[-1]
+            adjusted_timestamp = last_row['open_time']
+            emaShort = df['emaShort']
+            emaLong = df['emaLong']
+            rsi = df['rsi']
+            macdHist = df['macdHist']
+            adx = df['adx']
+            isLateral = df['isLateral']
+            upperBand = df['upperBand']
+            lowerBand = df['lowerBand']
+            bandWidth = df['bandWidth']
 
-def main_loop():
-    metrics = Metrics(ativo)  
-    data_interface = LiveData(API_KEY, API_SECRET)
-    strategy = TradingStrategy(data_interface, metrics, ativo, timeframe, setup)
+            # Determine trending market
+            trendingMarket = adx.iloc[-1] >= 12  # adxThreshold
 
-    logger.info("SandsBot Bybit iniciado")
-
-    is_comprado_logged = False
-    is_not_comprado_logged = False
-    last_log_time = time.time()
-
-    trade_history = read_trade_history()
-
-    price_thread = threading.Thread(target=data_interface.update_price_continuously, args=(ativo, 1))
-    price_thread.daemon = True
-    price_thread.start()
-
-    while True:
-#        try:
-            current_time = time.time()
-
-            is_buy, last_log_time = check_last_transaction(data_interface, ativo, last_log_time)
-            metrics.loop_counter_metric.labels(ativo).inc()
-            metrics.server_status_metric.set(1)
-
-            # Emitir um log a cada 10 minutos
-            if current_time - last_log_time >= 600:  # 600 segundos = 10 minutos
-                if is_buy:
-                    logger.info("Sandsbot está em loop de venda.")
+            # Detect transition into lateral market
+            if previous_isLateral is not None and isLateral.iloc[-1] != previous_isLateral:
+                if isLateral.iloc[-1]:
+                    # Entered lateral market
+                    logging.info("Entered lateral market. Stopgain and Stoploss levels adjusted.")
+                    logging.info(f"Stopgain and Stoploss levels for lateral market - Long: Stopgain {stopgain_lateral_long}, Stoploss {stoploss_lateral_long}; Short: Stopgain {stopgain_lateral_short}, Stoploss {stoploss_lateral_short}")
                 else:
-                    logger.info("Sandsbot está em loop de compra.")
-                last_log_time = current_time
+                    # Exited lateral market
+                    logging.info("Exited lateral market. Stopgain and Stoploss levels adjusted.")
+                    logging.info(f"Stopgain and Stoploss levels for trending market - Long: Stopgain {stopgain_normal_long}, Stoploss {stoploss_normal_long}; Short: Stopgain {stopgain_normal_short}, Stoploss {stoploss_normal_short}")
 
-            if is_buy and not is_comprado_logged:
-                is_comprado_logged = True
-                is_not_comprado_logged = False
+            previous_isLateral = isLateral.iloc[-1]
 
-            if not is_buy and not is_not_comprado_logged:
-                is_not_comprado_logged = True
-                is_comprado_logged = False
+            # Update last_candle_time
+            last_candle_time = current_time
 
-            if is_buy:
-                result = strategy.sell_logic(trade_history, current_time)
+            logging.info(f"Indicators updated at {current_time}")
+
+        # Log bot status every 10 minutes
+        if last_log_time is None or (current_time - last_log_time).total_seconds() >= 600:
+            current_position, position_info = get_current_position()
+            if not current_position:
+                logging.info("Bot status: Out of trade.")
             else:
-                result = strategy.buy_logic(trade_history, current_time)
+                side = position_info['side']
+                entry_price = position_info['entry_price']
+                if isLateral.iloc[-1]:
+                    if side == 'Buy':
+                        stop_loss = entry_price * stoploss_lateral_long
+                        take_profit = entry_price * stopgain_lateral_long
+                    else:
+                        stop_loss = entry_price * stoploss_lateral_short
+                        take_profit = entry_price * stopgain_lateral_short
+                else:
+                    if side == 'Buy':
+                        stop_loss = entry_price * stoploss_normal_long
+                        take_profit = entry_price * stopgain_normal_long
+                    else:
+                        stop_loss = entry_price * stoploss_normal_short
+                        take_profit = entry_price * stopgain_normal_short
+                logging.info(f"Bot status: In a {side.lower()} position.")
+                logging.info(f"Current Stoploss: {stop_loss:.2f}, Take Profit: {take_profit:.2f}")
+            last_log_time = current_time
 
-            if result is None:
-                logger.error("Erro: A função de lógica retornou None.")
-                continue
+        # Fetch the latest price every second
+        latest_price = get_latest_price()
 
-            is_buy, trade_history = result
+        # Implement real-time entry and exit logic based on latest_price and indicators
+        # Long and Short conditions
+        longCondition = (
+            crossover(emaShort, emaLong).iloc[-1]
+            and (rsi.iloc[-1] < 60)
+            and (macdHist.iloc[-1] > 0.5)
+            and trendingMarket
+        )
+        shortCondition = (
+            crossunder(emaShort, emaLong).iloc[-1]
+            and (rsi.iloc[-1] > 40)
+            and (macdHist.iloc[-1] < -0.5)
+            and trendingMarket
+        )
 
-#        except Exception as e:
-#            metrics.server_status_metric.set(0)
-#            offline_start = time.time()
-#            logger.error(f"Erro inesperado: {e}")
-#            time.sleep(25)
-#            offline_duration = time.time() - offline_start
-#            metrics.server_down_metric_duration.observe(offline_duration)
+        # Get current position
+        current_position, position_info = get_current_position()
 
-if __name__ == "__main__":
-    main_loop()
+        # Implement trading logic
+        if not current_position:
+            if isLateral.iloc[-1]:
+                # Mean Reversion Strategy in Lateral Market
+                if (latest_price < lowerBand.iloc[-1]) and longCondition:
+                    # Open long position
+                    qty = 0.01  # Define your position size
+                    order = session.place_active_order(
+                        symbol=symbol,
+                        side='Buy',
+                        order_type='Market',
+                        qty=qty,
+                        time_in_force='GoodTillCancel',
+                        reduce_only=False,
+                        close_on_trigger=False
+                    )
+                    logging.info(f"Entered long position at {datetime.utcnow()}, price: {latest_price}")
+                    logging.info(f"Stoploss set at {latest_price * stoploss_lateral_long:.2f}, Take Profit set at {latest_price * stopgain_lateral_long:.2f}")
+                    trade_count += 1
+                elif (latest_price > upperBand.iloc[-1]) and shortCondition:
+                    # Open short position
+                    qty = 0.01  # Define your position size
+                    order = session.place_active_order(
+                        symbol=symbol,
+                        side='Sell',
+                        order_type='Market',
+                        qty=qty,
+                        time_in_force='GoodTillCancel',
+                        reduce_only=False,
+                        close_on_trigger=False
+                    )
+                    logging.info(f"Entered short position at {datetime.utcnow()}, price: {latest_price}")
+                    logging.info(f"Stoploss set at {latest_price * stoploss_lateral_short:.2f}, Take Profit set at {latest_price * stopgain_lateral_short:.2f}")
+                    trade_count += 1
+            else:
+                # Trend Following Strategy in Trending Market
+                if longCondition:
+                    # Open long position
+                    qty = 0.01  # Define your position size
+                    order = session.place_active_order(
+                        symbol=symbol,
+                        side='Buy',
+                        order_type='Market',
+                        qty=qty,
+                        time_in_force='GoodTillCancel',
+                        reduce_only=False,
+                        close_on_trigger=False
+                    )
+                    logging.info(f"Entered long position at {datetime.utcnow()}, price: {latest_price}")
+                    logging.info(f"Stoploss set at {latest_price * stoploss_normal_long:.2f}, Take Profit set at {latest_price * stopgain_normal_long:.2f}")
+                    trade_count += 1
+                elif shortCondition:
+                    # Open short position
+                    qty = 0.01  # Define your position size
+                    order = session.place_active_order(
+                        symbol=symbol,
+                        side='Sell',
+                        order_type='Market',
+                        qty=qty,
+                        time_in_force='GoodTillCancel',
+                        reduce_only=False,
+                        close_on_trigger=False
+                    )
+                    logging.info(f"Entered short position at {datetime.utcnow()}, price: {latest_price}")
+                    logging.info(f"Stoploss set at {latest_price * stoploss_normal_short:.2f}, Take Profit set at {latest_price * stopgain_normal_short:.2f}")
+                    trade_count += 1
+        else:
+            # Manage open position
+            side = position_info['side']
+            entry_price = position_info['entry_price']
+            size = position_info['size']
+            if isLateral.iloc[-1]:
+                # Lateral market exit conditions
+                if side == 'Buy':
+                    # Long position
+                    stop_loss = entry_price * stoploss_lateral_long
+                    take_profit = entry_price * stopgain_lateral_long
+                    if latest_price <= stop_loss or shortCondition:
+                        # Close position at stop loss or reversal
+                        order = session.place_active_order(
+                            symbol=symbol,
+                            side='Sell',
+                            order_type='Market',
+                            qty=size,
+                            time_in_force='GoodTillCancel',
+                            reduce_only=True,
+                            close_on_trigger=False
+                        )
+                        logging.info(f"Exited long position at {datetime.utcnow()}, price: {latest_price}")
+                    elif latest_price >= take_profit:
+                        # Close position at take profit
+                        order = session.place_active_order(
+                            symbol=symbol,
+                            side='Sell',
+                            order_type='Market',
+                            qty=size,
+                            time_in_force='GoodTillCancel',
+                            reduce_only=True,
+                            close_on_trigger=False
+                        )
+                        logging.info(f"Exited long position at {datetime.utcnow()}, price: {latest_price}")
+                elif side == 'Sell':
+                    # Short position
+                    stop_loss = entry_price * stoploss_lateral_short
+                    take_profit = entry_price * stopgain_lateral_short
+                    if latest_price >= stop_loss or longCondition:
+                        # Close position at stop loss or reversal
+                        order = session.place_active_order(
+                            symbol=symbol,
+                            side='Buy',
+                            order_type='Market',
+                            qty=size,
+                            time_in_force='GoodTillCancel',
+                            reduce_only=True,
+                            close_on_trigger=False
+                        )
+                        logging.info(f"Exited short position at {datetime.utcnow()}, price: {latest_price}")
+                    elif latest_price <= take_profit:
+                        # Close position at take profit
+                        order = session.place_active_order(
+                            symbol=symbol,
+                            side='Buy',
+                            order_type='Market',
+                            qty=size,
+                            time_in_force='GoodTillCancel',
+                            reduce_only=True,
+                            close_on_trigger=False
+                        )
+                        logging.info(f"Exited short position at {datetime.utcnow()}, price: {latest_price}")
+            else:
+                # Trending market exit conditions
+                if side == 'Buy':
+                    # Long position
+                    stop_loss = entry_price * stoploss_normal_long
+                    take_profit = entry_price * stopgain_normal_long
+                    if latest_price <= stop_loss or shortCondition:
+                        # Close position at stop loss or reversal
+                        order = session.place_active_order(
+                            symbol=symbol,
+                            side='Sell',
+                            order_type='Market',
+                            qty=size,
+                            time_in_force='GoodTillCancel',
+                            reduce_only=True,
+                            close_on_trigger=False
+                        )
+                        logging.info(f"Exited long position at {datetime.utcnow()}, price: {latest_price}")
+                    elif latest_price >= take_profit:
+                        # Close position at take profit
+                        order = session.place_active_order(
+                            symbol=symbol,
+                            side='Sell',
+                            order_type='Market',
+                            qty=size,
+                            time_in_force='GoodTillCancel',
+                            reduce_only=True,
+                            close_on_trigger=False
+                        )
+                        logging.info(f"Exited long position at {datetime.utcnow()}, price: {latest_price}")
+                elif side == 'Sell':
+                    # Short position
+                    stop_loss = entry_price * stoploss_normal_short
+                    take_profit = entry_price * stopgain_normal_short
+                    if latest_price >= stop_loss or longCondition:
+                        # Close position at stop loss or reversal
+                        order = session.place_active_order(
+                            symbol=symbol,
+                            side='Buy',
+                            order_type='Market',
+                            qty=size,
+                            time_in_force='GoodTillCancel',
+                            reduce_only=True,
+                            close_on_trigger=False
+                        )
+                        logging.info(f"Exited short position at {datetime.utcnow()}, price: {latest_price}")
+                    elif latest_price <= take_profit:
+                        # Close position at take profit
+                        order = session.place_active_order(
+                            symbol=symbol,
+                            side='Buy',
+                            order_type='Market',
+                            qty=size,
+                            time_in_force='GoodTillCancel',
+                            reduce_only=True,
+                            close_on_trigger=False
+                        )
+                        logging.info(f"Exited short position at {datetime.utcnow()}, price: {latest_price}")
+
+        # Wait for 1 second before next price check
+        time.sleep(1)
+
+    except Exception as e:
+        logging.error(f"An error occurred: {e}")
+        time.sleep(5)
