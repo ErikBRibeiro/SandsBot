@@ -10,14 +10,14 @@ if os.path.isfile(trade_history_file):
     df_trade_history = pd.read_csv(trade_history_file)
     
     # Verificar se a coluna 'type' já existe
-    if 'entry_lateral' not in df_trade_history.columns:
+    if 'exit_lateral' not in df_trade_history.columns:
         # Adicionar a nova coluna 'type' com valores em branco
-        df_trade_history['entry_lateral'] = ''
+        df_trade_history['exit_lateral'] = ''
         
         # Salvar o CSV com a nova coluna
         df_trade_history.to_csv(trade_history_file, index=False)
-        print("Coluna 'entry_lateral' adicionada com sucesso.")
+        print("Coluna 'exit_lateral' adicionada com sucesso.")
     else:
-        print("A coluna 'entry_lateral' já existe no arquivo.")
+        print("A coluna 'exit_lateral' já existe no arquivo.")
 else:
     print(f"O arquivo {trade_history_file} não foi encontrado.")
