@@ -140,7 +140,7 @@ while True:
                 logging.error("Failed to fetch account balance.")
                 old_balance = 0  # Set to zero to avoid calculation errors
             entry_price = latest_price
-            commission_rate = 0.0006  # 0.06% (taker fee for market order)
+            commission_rate = 0.0003  # 0.03% (taker fee for market order)
             commission = entry_price * qty * commission_rate
             trade_data = {
                 'trade_id': trade_id,
