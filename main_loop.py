@@ -1,7 +1,6 @@
 import pandas as pd
 import numpy as np
-from datetime import datetime, timedelta
-import talib
+from datetime import datetime
 import os
 import sys
 import time
@@ -38,15 +37,11 @@ logging.basicConfig(
     ]
 )
 
-# Check if trade_history.csv exists, if not create it with headers
+# Load the existing trade history
 trade_history_file = 'trade_history.csv'
 if not os.path.isfile(trade_history_file):
-    columns = ['trade_id', 'timestamp', 'symbol', 'buy_price', 'sell_price', 'quantity',
-               'stop_loss', 'stop_gain', 'potential_loss', 'potential_gain', 'timeframe',
-               'setup', 'outcome', 'commission', 'old_balance', 'new_balance',
-               'secondary_stop_loss', 'secondary_stop_gain', 'sell_time']
-    df_trade_history = pd.DataFrame(columns=columns)
-    df_trade_history.to_csv(trade_history_file, index=False)
+    logging.error(f"{trade_history_file} not found. Ensure you have a trade history to update.")
+    sys.exit(1)
 
 # Function to fetch the latest price
 def get_latest_price():
@@ -77,24 +72,30 @@ def get_account_balance():
         logging.error(f"Exception in get_account_balance: {e}")
         return None
 
-# Functions to log trade entries
-def log_trade_entry(trade_data):
+# Function to update the trade log with sell details
+def update_trade_with_sell(trade_id, sell_price, sell_time, commission):
     try:
-        if os.path.isfile(trade_history_file):
-            df_trade_history = pd.read_csv(trade_history_file)
-        else:
-            columns = ['trade_id', 'timestamp', 'symbol', 'buy_price', 'sell_price', 'quantity',
-                       'stop_loss', 'stop_gain', 'potential_loss', 'potential_gain', 'timeframe',
-                       'setup', 'outcome', 'commission', 'old_balance', 'new_balance',
-                       'secondary_stop_loss', 'secondary_stop_gain', 'sell_time']
-            df_trade_history = pd.DataFrame(columns=columns)
-        df_trade_history = df_trade_history.append(trade_data, ignore_index=True)
+        # Load the trade history
+        df_trade_history = pd.read_csv(trade_history_file)
+        
+        # Locate the trade by trade_id
+        mask = (df_trade_history['trade_id'] == trade_id) & (df_trade_history['sell_price'].isna())
+        if not mask.any():
+            logging.error(f"Trade with ID {trade_id} not found or already sold.")
+            return
+
+        # Update the trade with sell information
+        df_trade_history.loc[mask, 'sell_price'] = sell_price
+        df_trade_history.loc[mask, 'sell_time'] = sell_time
+        df_trade_history.loc[mask, 'commission'] += commission  # Add commission for the sell
         df_trade_history.to_csv(trade_history_file, index=False)
+
+        logging.info(f"Trade {trade_id} updated with sell price: {sell_price}, sell time: {sell_time}, commission: {commission}")
     except Exception as e:
-        logging.error(f"Exception in log_trade_entry: {e}")
+        logging.error(f"Exception in update_trade_with_sell: {e}")
 
 # Initialize variables
-trade_executed = False  # Flag to check if the forced trade has been executed
+sell_executed = False  # Flag to check if the forced sell has been executed
 
 # Main trading loop
 while True:
@@ -108,72 +109,48 @@ while True:
             time.sleep(5)
             continue
 
-        # Force a buy order of $100 immediately if not already executed
-        if not trade_executed:
-            # Calculate quantity to buy $100 worth of BTC
-            qty = 0.001
+        # Force a sell order for 0.001 BTC
+        if not sell_executed:
+            qty = 0.001  # Amount of BTC to sell
             try:
                 order = session.place_order(
                     category='linear',
                     symbol=symbol,
-                    side='Buy',
+                    side='Sell',
                     orderType='Market',
-                    qty=str(qty),
+                    qty=str(qty),  # Sell the same quantity that was bought
                     timeInForce='GTC',
                     reduceOnly=False,
                     closeOnTrigger=False
                 )
                 if order['retMsg'] != 'OK':
-                    logging.error(f"Error placing buy order: {order['retMsg']}")
+                    logging.error(f"Error placing sell order: {order['retMsg']}")
                     time.sleep(5)
                     continue
             except Exception as e:
-                logging.error(f"Exception placing buy order: {e}")
+                logging.error(f"Exception placing sell order: {e}")
                 time.sleep(5)
                 continue
 
-            trade_id = datetime.utcnow().isoformat()
-            old_balance = get_account_balance()
-            if old_balance is None:
-                logging.error("Failed to fetch account balance.")
-                old_balance = 0  # Set to zero to avoid calculation errors
-            entry_price = latest_price
+            # Log the sell details
+            sell_time = datetime.utcnow().isoformat()
+            sell_price = latest_price
             commission_rate = 0.0003  # 0.03% (taker fee for market order)
-            commission = entry_price * qty * commission_rate
-            trade_data = {
-                'trade_id': trade_id,
-                'timestamp': trade_id,
-                'symbol': symbol,
-                'buy_price': entry_price,
-                'sell_price': '',
-                'quantity': qty,
-                'stop_loss': '',
-                'stop_gain': '',
-                'potential_loss': '',
-                'potential_gain': '',
-                'commission': commission,
-                'old_balance': old_balance,
-                'new_balance': '',
-                'timeframe': '',
-                'setup': 'Forced Buy Test',
-                'outcome': '',
-                'secondary_stop_loss': '',
-                'secondary_stop_gain': '',
-                'sell_time': ''
-            }
-            log_trade_entry(trade_data)
-            logging.info(f"Forced buy order executed at {trade_id}, price: {entry_price}, quantity: {qty}")
-            logging.info(f"Trade details logged to {trade_history_file}")
-            trade_executed = True  # Set the flag to prevent further forced trades
+            commission = sell_price * qty * commission_rate  # Calculate commission for sell order
 
-            # Wait for a moment before continuing
-            time.sleep(1)
-            continue  # Skip the rest of the loop
+            # Use the trade ID from the buy transaction to update the log
+            df_trade_history = pd.read_csv(trade_history_file)
+            last_trade_id = df_trade_history.iloc[-1]['trade_id']  # Assuming the last trade is the one to update
 
-        # Since we don't want to sell, we can simply keep the bot running
-        # Optionally, you can add a condition to exit the loop after a certain time
-        logging.info("Forced trade executed. Bot is idle as per your request.")
-        time.sleep(60)  # Wait for 60 seconds before the next check
+            # Update the trade log with the sell information
+            update_trade_with_sell(last_trade_id, sell_price, sell_time, commission)
+
+            logging.info(f"Forced sell order executed at {sell_time}, price: {sell_price}, quantity: {qty}")
+            logging.info(f"Trade details updated in {trade_history_file}")
+            sell_executed = True  # Set the flag to prevent further forced sells
+
+            # Exit the loop after selling
+            break
 
     except KeyboardInterrupt:
         logging.info("Bot stopped manually.")
