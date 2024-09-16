@@ -164,9 +164,6 @@ def get_current_position(retries=3, backoff_factor=5):
                 symbol=symbol       # par de símbolos como BTCUSDT
             )
             
-            # Log da resposta da API
-            logging.info(f"API Response: {positions}")
-            
             # Verificar se a resposta foi bem-sucedida
             if positions['retMsg'] != 'OK':
                 logging.error(f"Erro ao buscar posições: {positions['retMsg']}")
@@ -182,9 +179,9 @@ def get_current_position(retries=3, backoff_factor=5):
                     entry_price = float(pos['avgPrice'])
                     return side.lower(), {'entry_price': entry_price, 'size': size, 'side': side}
                     
-            # Se não houver posição aberta, log a informação
+            # Se não houver posição aberta, retornar False
             logging.info("Nenhuma posição aberta no momento.")
-            return None, None
+            return False
         
         except Exception as e:
             logging.error(f"Erro inesperado no get_current_position: {e}")
@@ -193,7 +190,7 @@ def get_current_position(retries=3, backoff_factor=5):
             time.sleep(backoff_factor * attempt)
 
     logging.error("Falha ao obter posição atual após várias tentativas.")
-    return None, None
+    return False
 
 
 
@@ -444,7 +441,7 @@ while True:
         # Get current position
         current_position, position_info = get_current_position()
         if current_position is None:
-            logging.error("Failed to fetch current position.")
+            logging.info("Failed to fetch current position.")
             time.sleep(5)
             continue
 
