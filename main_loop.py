@@ -153,40 +153,22 @@ def crossunder(series1, series2):
         logging.error(f"Exception in crossunder function: {e}")
         return pd.Series([False])
 
-# Function to get current position
-# Function to get current position with improved error handling and retry logic
-# Function to get current position with detailed request/response logging
+# Corrigindo o método para buscar as posições
 def get_current_position(retries=3, backoff_factor=5):
     attempt = 0
     while attempt < retries:
         try:
-            # Start a session to capture both request and response
-            session = requests.Session()
-            
-            # Making the API request using the pybit session
-            positions = session.get_positions(
+            # Use o método positions ao invés de get_positions
+            positions = session.positions(
                 category='linear',
                 symbol=symbol
             )
-
-            # Log the full API request and response for debugging purposes
-            logging.info(f"Request URL: {session.endpoint + '/v2/private/position/list'}")
-            logging.info(f"Request Headers: {session.headers}")
-            logging.info(f"Request Body: {{'symbol': '{symbol}'}}")
-
+            
             # Log the full API response for debugging purposes
             logging.info(f"API Response: {positions}")
-
-            # Check if the API response was successful
+            
             if positions['retMsg'] != 'OK':
                 logging.error(f"Error fetching positions: {positions['retMsg']}")
-                
-                # Handle specific rate limit error
-                if positions['retCode'] == 10016:  # Assuming 10016 is the rate limit code
-                    logging.warning("Rate limit exceeded. Retrying with backoff...")
-                    attempt += 1
-                    time.sleep(backoff_factor * attempt)  # Exponential backoff
-                    continue
                 return None, None
 
             positions_data = positions['result']['list']
@@ -199,36 +181,14 @@ def get_current_position(retries=3, backoff_factor=5):
                     size = float(pos['size'])
                     return side.lower(), {'entry_price': entry_price, 'size': size, 'side': side}
                     
-            # No open positions found
             return None, None
-
-        except requests.RequestException as req_error:
-            logging.error(f"Network-related error occurred: {req_error}")
-            attempt += 1
-            time.sleep(backoff_factor * attempt)
-
-        except requests.HTTPError as http_error:
-            logging.error(f"HTTP error occurred: {http_error}")
-            attempt += 1
-            time.sleep(backoff_factor * attempt)
-
-        except requests.ConnectionError as conn_error:
-            logging.error(f"Error connecting to API: {conn_error}")
-            attempt += 1
-            time.sleep(backoff_factor * attempt)
-
-        except requests.Timeout as timeout_error:
-            logging.error(f"Request timed out: {timeout_error}")
-            attempt += 1
-            time.sleep(backoff_factor * attempt)
-
+        
         except Exception as e:
             logging.error(f"Unexpected error in get_current_position: {e}")
             logging.error(traceback.format_exc())
             attempt += 1
             time.sleep(backoff_factor * attempt)
 
-    # If all retries fail
     logging.error("Failed to fetch current position after multiple attempts.")
     return None, None
 
