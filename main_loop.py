@@ -37,37 +37,8 @@ logging.basicConfig(
     ]
 )
 
-# Adjust the path to /app/data/trade_history.csv
+# Path to /app/data/trade_history.csv
 trade_history_file = '/app/data/trade_history.csv'
-
-# Check if the trade history CSV exists and if it is empty, if so, create the headers
-def initialize_trade_history_file():
-    try:
-        if os.path.isfile(trade_history_file):
-            if os.stat(trade_history_file).st_size == 0:  # Check if file is empty
-                # Add headers if the file is empty
-                columns = ['trade_id', 'timestamp', 'symbol', 'entry_price', 'exit_price', 'quantity',
-                           'stop_loss', 'stop_gain', 'potential_loss', 'potential_gain', 'timeframe',
-                           'setup', 'outcome', 'commission', 'old_balance', 'new_balance',
-                           'secondary_stop_loss', 'secondary_stop_gain', 'exit_time']
-                df_trade_history = pd.DataFrame(columns=columns)
-                df_trade_history.to_csv(trade_history_file, index=False)
-                logging.info(f"Initialized empty trade history file at {trade_history_file} with headers.")
-        else:
-            # File does not exist, create it with headers
-            columns = ['trade_id', 'timestamp', 'symbol', 'entry_price', 'exit_price', 'quantity',
-                       'stop_loss', 'stop_gain', 'potential_loss', 'potential_gain', 'timeframe',
-                       'setup', 'outcome', 'commission', 'old_balance', 'new_balance',
-                       'secondary_stop_loss', 'secondary_stop_gain', 'exit_time']
-            df_trade_history = pd.DataFrame(columns=columns)
-            df_trade_history.to_csv(trade_history_file, index=False)
-            logging.info(f"Created new trade history file at {trade_history_file}")
-    except Exception as e:
-        logging.error(f"Error initializing trade history file: {e}")
-        sys.exit(1)
-
-# Initialize the trade history file
-initialize_trade_history_file()
 
 # Function to fetch the latest price
 def get_latest_price():
@@ -101,15 +72,13 @@ def get_account_balance():
 # Function to log the trade entry
 def log_trade_entry(trade_data):
     try:
-        if os.path.isfile(trade_history_file):
-            df_trade_history = pd.read_csv(trade_history_file)
-        else:
-            columns = ['trade_id', 'timestamp', 'symbol', 'entry_price', 'exit_price', 'quantity',
-                       'stop_loss', 'stop_gain', 'potential_loss', 'potential_gain', 'timeframe',
-                       'setup', 'outcome', 'commission', 'old_balance', 'new_balance',
-                       'secondary_stop_loss', 'secondary_stop_gain', 'exit_time']
-            df_trade_history = pd.DataFrame(columns=columns)
-        df_trade_history = df_trade_history.append(trade_data, ignore_index=True)
+        df_trade_history = pd.read_csv(trade_history_file)
+
+        # Use pd.concat to add new entry to the DataFrame
+        new_trade_data = pd.DataFrame([trade_data])
+        df_trade_history = pd.concat([df_trade_history, new_trade_data], ignore_index=True)
+
+        # Save back to CSV
         df_trade_history.to_csv(trade_history_file, index=False)
     except Exception as e:
         logging.error(f"Exception in log_trade_entry: {e}")
@@ -118,8 +87,8 @@ def log_trade_entry(trade_data):
 def update_trade_with_exit(trade_id, exit_price, exit_time, commission):
     try:
         df_trade_history = pd.read_csv(trade_history_file)
-        
-        # Locate the trade by trade_id
+
+        # Locate the trade by trade_id and where exit_price is NaN (indicating the trade is still open)
         mask = (df_trade_history['trade_id'] == trade_id) & (df_trade_history['exit_price'].isna())
         if not mask.any():
             logging.error(f"Trade with ID {trade_id} not found or already exited.")
@@ -129,6 +98,8 @@ def update_trade_with_exit(trade_id, exit_price, exit_time, commission):
         df_trade_history.loc[mask, 'exit_price'] = exit_price
         df_trade_history.loc[mask, 'exit_time'] = exit_time
         df_trade_history.loc[mask, 'commission'] += commission  # Add exit commission
+
+        # Save the updated data back to CSV
         df_trade_history.to_csv(trade_history_file, index=False)
 
         logging.info(f"Trade {trade_id} updated with exit price: {exit_price}, exit time: {exit_time}, commission: {commission}")
@@ -177,14 +148,14 @@ while True:
             # Log the trade entry
             trade_id = datetime.utcnow().isoformat()
             entry_price = latest_price
-            commission_rate = 0.0006  # 0.03% (taker fee for market order)
+            commission_rate = 0.0003  # 0.03% (taker fee for market order)
             commission = entry_price * qty * commission_rate
             trade_data = {
                 'trade_id': trade_id,
                 'timestamp': trade_id,
                 'symbol': symbol,
                 'entry_price': entry_price,  # Entry price for both short and long
-                'exit_price': '',  # Will be updated on exit
+                'exit_price': np.nan,  # Will be updated on exit
                 'quantity': qty,
                 'stop_loss': '',
                 'stop_gain': '',
