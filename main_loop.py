@@ -153,44 +153,48 @@ def crossunder(series1, series2):
         logging.error(f"Exception in crossunder function: {e}")
         return pd.Series([False])
 
-# Corrigindo o método para buscar as posições
+# Função para obter a posição atual
 def get_current_position(retries=3, backoff_factor=5):
     attempt = 0
     while attempt < retries:
         try:
-            # Use o método positions ao invés de get_positions
+            # Utilizando o método correto para obter posições
             positions = session.get_positions(
-                category='linear',
-                symbol=symbol,
+                category='linear',  # linear para contratos perpétuos
+                symbol=symbol       # par de símbolos como BTCUSDT
             )
             
-            # Log the full API response for debugging purposes
+            # Log da resposta da API
             logging.info(f"API Response: {positions}")
             
+            # Verificar se a resposta foi bem-sucedida
             if positions['retMsg'] != 'OK':
-                logging.error(f"Error fetching positions: {positions['retMsg']}")
+                logging.error(f"Erro ao buscar posições: {positions['retMsg']}")
                 return None, None
 
             positions_data = positions['result']['list']
 
-            # Check if there is any open position
+            # Verificar se há uma posição aberta
             for pos in positions_data:
-                if float(pos['size']) != 0:
+                size = float(pos['size'])
+                if size != 0:
                     side = pos['side']
                     entry_price = float(pos['avgPrice'])
-                    size = float(pos['size'])
                     return side.lower(), {'entry_price': entry_price, 'size': size, 'side': side}
                     
+            # Se não houver posição aberta, log a informação
+            logging.info("Nenhuma posição aberta no momento.")
             return None, None
         
         except Exception as e:
-            logging.error(f"Unexpected error in get_current_position: {e}")
+            logging.error(f"Erro inesperado no get_current_position: {e}")
             logging.error(traceback.format_exc())
             attempt += 1
             time.sleep(backoff_factor * attempt)
 
-    logging.error("Failed to fetch current position after multiple attempts.")
+    logging.error("Falha ao obter posição atual após várias tentativas.")
     return None, None
+
 
 
 # Function to fetch the latest price
