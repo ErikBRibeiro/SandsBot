@@ -9,6 +9,8 @@ from dotenv import load_dotenv, find_dotenv
 from pybit.unified_trading import HTTP
 import logging
 import traceback
+import requests
+from requests.exceptions import RequestException, HTTPError, ConnectionError, Timeout
 
 # Load API key and secret from .env file
 load_dotenv(find_dotenv())
@@ -50,116 +52,156 @@ if not os.path.isfile(trade_history_file):
 
 # Function to fetch historical kline data
 def get_historical_klines(symbol, interval, limit):
-    now = datetime.utcnow()
-    from_time = now - timedelta(minutes=int(interval) * limit)
-    from_time_ms = int(from_time.timestamp() * 1000)
-    kline = session.get_kline(
-        category='linear',
-        symbol=symbol,
-        interval=str(interval),
-        start=str(from_time_ms),
-        limit=limit
-    )
-    kline_data = kline['result']['list']
-    df = pd.DataFrame(kline_data, columns=[
-        'timestamp', 'open', 'high', 'low', 'close', 'volume', 'turnover'
-    ])
-    # Ensure 'timestamp' is numeric before converting to datetime
-    df['timestamp'] = pd.to_numeric(df['timestamp'], errors='coerce')
-    df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
-    df['open'] = df['open'].astype(float)
-    df['high'] = df['high'].astype(float)
-    df['low'] = df['low'].astype(float)
-    df['close'] = df['close'].astype(float)
-    df['volume'] = df['volume'].astype(float)
-    df['turnover'] = df['turnover'].astype(float)
-    return df
+    try:
+        now = datetime.utcnow()
+        from_time = now - timedelta(minutes=int(interval) * limit)
+        from_time_ms = int(from_time.timestamp() * 1000)
+        kline = session.get_kline(
+            category='linear',
+            symbol=symbol,
+            interval=str(interval),
+            start=str(from_time_ms),
+            limit=limit
+        )
+        if kline['retMsg'] != 'OK':
+            logging.error(f"Error fetching kline data: {kline['retMsg']}")
+            return None
+        kline_data = kline['result']['list']
+        df = pd.DataFrame(kline_data, columns=[
+            'timestamp', 'open', 'high', 'low', 'close', 'volume', 'turnover'
+        ])
+        # Ensure 'timestamp' is numeric before converting to datetime
+        df['timestamp'] = pd.to_numeric(df['timestamp'], errors='coerce')
+        df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+        df['open'] = df['open'].astype(float)
+        df['high'] = df['high'].astype(float)
+        df['low'] = df['low'].astype(float)
+        df['close'] = df['close'].astype(float)
+        df['volume'] = df['volume'].astype(float)
+        df['turnover'] = df['turnover'].astype(float)
+        return df
+    except Exception as e:
+        logging.error(f"Exception in get_historical_klines: {e}")
+        return None
 
 # Function to calculate indicators
 def calculate_indicators(df):
-    close_price = df['close'].values
-    high_price = df['high'].values
-    low_price = df['low'].values
+    try:
+        close_price = df['close'].values
+        high_price = df['high'].values
+        low_price = df['low'].values
 
-    # Parameters
-    emaShortLength = 11
-    emaLongLength = 55
-    rsiLength = 22
-    macdShort = 15
-    macdLong = 34
-    macdSignal = 11
-    adxLength = 16
-    adxSmoothing = 13
-    adxThreshold = 12
-    bbLength = 14
-    bbMultiplier = 1.7
-    lateralThreshold = 0.005
+        # Parameters
+        emaShortLength = 11
+        emaLongLength = 55
+        rsiLength = 22
+        macdShort = 15
+        macdLong = 34
+        macdSignal = 11
+        adxLength = 16
+        adxSmoothing = 13
+        adxThreshold = 12
+        bbLength = 14
+        bbMultiplier = 1.7
+        lateralThreshold = 0.005
 
-    # Calculating indicators using TA-Lib
-    emaShort = talib.EMA(close_price, emaShortLength)
-    emaLong = talib.EMA(close_price, emaLongLength)
-    rsi = talib.RSI(close_price, timeperiod=rsiLength)
-    macdLine, signalLine, macdHist = talib.MACD(
-        close_price, fastperiod=macdShort, slowperiod=macdLong, signalperiod=macdSignal
-    )
-    upperBand, middleBand, lowerBand = talib.BBANDS(
-        close_price, timeperiod=bbLength, nbdevup=bbMultiplier, nbdevdn=bbMultiplier
-    )
-    adx = talib.ADX(high_price, low_price, close_price, timeperiod=adxSmoothing)
-    bandWidth = (upperBand - lowerBand) / middleBand
-    isLateral = bandWidth < lateralThreshold
+        # Calculating indicators using TA-Lib
+        emaShort = talib.EMA(close_price, emaShortLength)
+        emaLong = talib.EMA(close_price, emaLongLength)
+        rsi = talib.RSI(close_price, timeperiod=rsiLength)
+        macdLine, signalLine, macdHist = talib.MACD(
+            close_price, fastperiod=macdShort, slowperiod=macdLong, signalperiod=macdSignal
+        )
+        upperBand, middleBand, lowerBand = talib.BBANDS(
+            close_price, timeperiod=bbLength, nbdevup=bbMultiplier, nbdevdn=bbMultiplier
+        )
+        adx = talib.ADX(high_price, low_price, close_price, timeperiod=adxSmoothing)
+        bandWidth = (upperBand - lowerBand) / middleBand
+        isLateral = bandWidth < lateralThreshold
 
-    df['emaShort'] = emaShort
-    df['emaLong'] = emaLong
-    df['rsi'] = rsi
-    df['macdHist'] = macdHist
-    df['adx'] = adx
-    df['upperBand'] = upperBand
-    df['middleBand'] = middleBand
-    df['lowerBand'] = lowerBand
-    df['bandWidth'] = bandWidth
-    df['isLateral'] = isLateral
+        df['emaShort'] = emaShort
+        df['emaLong'] = emaLong
+        df['rsi'] = rsi
+        df['macdHist'] = macdHist
+        df['adx'] = adx
+        df['upperBand'] = upperBand
+        df['middleBand'] = middleBand
+        df['lowerBand'] = lowerBand
+        df['bandWidth'] = bandWidth
+        df['isLateral'] = isLateral
 
-    return df
+        return df
+    except Exception as e:
+        logging.error(f"Exception in calculate_indicators: {e}")
+        return None
 
 # Helper functions for crossover logic
 def crossover(series1, series2):
-    cross = (series1 > series2) & (series1.shift(1) <= series2.shift(1))
-    return cross
+    try:
+        cross = (series1 > series2) & (series1.shift(1) <= series2.shift(1))
+        return cross
+    except Exception as e:
+        logging.error(f"Exception in crossover function: {e}")
+        return pd.Series([False])
 
 def crossunder(series1, series2):
-    cross = (series1 < series2) & (series1.shift(1) >= series2.shift(1))
-    return cross
+    try:
+        cross = (series1 < series2) & (series1.shift(1) >= series2.shift(1))
+        return cross
+    except Exception as e:
+        logging.error(f"Exception in crossunder function: {e}")
+        return pd.Series([False])
 
 # Function to get current position
 def get_current_position():
-    positions = session.get_positions(
-        category='linear',
-        symbol=symbol
-    )
-    positions_data = positions['result']['list']
-    for pos in positions_data:
-        if float(pos['size']) != 0:
-            side = pos['side']
-            entry_price = float(pos['avgPrice'])
-            size = float(pos['size'])
-            return side.lower(), {'entry_price': entry_price, 'size': size, 'side': side}
-    return None, None
+    try:
+        positions = session.get_positions(
+            category='linear',
+            symbol=symbol
+        )
+        if positions['retMsg'] != 'OK':
+            logging.error(f"Error fetching positions: {positions['retMsg']}")
+            return None, None
+        positions_data = positions['result']['list']
+        for pos in positions_data:
+            if float(pos['size']) != 0:
+                side = pos['side']
+                entry_price = float(pos['avgPrice'])
+                size = float(pos['size'])
+                return side.lower(), {'entry_price': entry_price, 'size': size, 'side': side}
+        return None, None
+    except Exception as e:
+        logging.error(f"Exception in get_current_position: {e}")
+        return None, None
 
 # Function to fetch the latest price
 def get_latest_price():
-    ticker = session.get_tickers(
-        category='linear',
-        symbol=symbol
-    )
-    price = float(ticker['result']['list'][0]['lastPrice'])
-    return price
+    try:
+        ticker = session.get_tickers(
+            category='linear',
+            symbol=symbol
+        )
+        if ticker['retMsg'] != 'OK':
+            logging.error(f"Error fetching latest price: {ticker['retMsg']}")
+            return None
+        price = float(ticker['result']['list'][0]['lastPrice'])
+        return price
+    except Exception as e:
+        logging.error(f"Exception in get_latest_price: {e}")
+        return None
 
 # Function to get account balance
 def get_account_balance():
-    balance_info = session.get_wallet_balance(accountType='UNIFIED')
-    total_equity = float(balance_info['result']['totalEquity'])
-    return total_equity
+    try:
+        balance_info = session.get_wallet_balance(accountType='UNIFIED')
+        if balance_info['retMsg'] != 'OK':
+            logging.error(f"Error fetching account balance: {balance_info['retMsg']}")
+            return None
+        total_equity = float(balance_info['result']['totalEquity'])
+        return total_equity
+    except Exception as e:
+        logging.error(f"Exception in get_account_balance: {e}")
+        return None
 
 # Function to set leverage to 1x
 def set_leverage():
@@ -179,29 +221,35 @@ def set_leverage():
 
 # Functions to log trade entries and exits
 def log_trade_entry(trade_data):
-    if os.path.isfile(trade_history_file):
-        df_trade_history = pd.read_csv(trade_history_file)
-    else:
-        columns = ['trade_id', 'timestamp', 'symbol', 'buy_price', 'sell_price', 'quantity',
-                   'stop_loss', 'stop_gain', 'potential_loss', 'potential_gain', 'timeframe',
-                   'setup', 'outcome', 'commission', 'old_balance', 'new_balance',
-                   'secondary_stop_loss', 'secondary_stop_gain', 'sell_time']
-        df_trade_history = pd.DataFrame(columns=columns)
-    df_trade_history = df_trade_history.append(trade_data, ignore_index=True)
-    df_trade_history.to_csv(trade_history_file, index=False)
+    try:
+        if os.path.isfile(trade_history_file):
+            df_trade_history = pd.read_csv(trade_history_file)
+        else:
+            columns = ['trade_id', 'timestamp', 'symbol', 'buy_price', 'sell_price', 'quantity',
+                       'stop_loss', 'stop_gain', 'potential_loss', 'potential_gain', 'timeframe',
+                       'setup', 'outcome', 'commission', 'old_balance', 'new_balance',
+                       'secondary_stop_loss', 'secondary_stop_gain', 'sell_time']
+            df_trade_history = pd.DataFrame(columns=columns)
+        df_trade_history = df_trade_history.append(trade_data, ignore_index=True)
+        df_trade_history.to_csv(trade_history_file, index=False)
+    except Exception as e:
+        logging.error(f"Exception in log_trade_entry: {e}")
 
 def log_trade_update(trade_id, symbol, update_data):
-    if not os.path.isfile(trade_history_file):
-        logging.error("Trade history file does not exist.")
-        return
-    df_trade_history = pd.read_csv(trade_history_file)
-    mask = (df_trade_history['trade_id'] == trade_id) & (df_trade_history['symbol'] == symbol)
-    if mask.any():
-        for key, value in update_data.items():
-            df_trade_history.loc[mask, key] = value
-        df_trade_history.to_csv(trade_history_file, index=False)
-    else:
-        logging.error("Trade not found in trade history for update.")
+    try:
+        if not os.path.isfile(trade_history_file):
+            logging.error("Trade history file does not exist.")
+            return
+        df_trade_history = pd.read_csv(trade_history_file)
+        mask = (df_trade_history['trade_id'] == trade_id) & (df_trade_history['symbol'] == symbol)
+        if mask.any():
+            for key, value in update_data.items():
+                df_trade_history.loc[mask, key] = value
+            df_trade_history.to_csv(trade_history_file, index=False)
+        else:
+            logging.error("Trade not found in trade history for update.")
+    except Exception as e:
+        logging.error(f"Exception in log_trade_update: {e}")
 
 def log_trade_exit(trade_id, symbol, update_data):
     log_trade_update(trade_id, symbol, update_data)
@@ -239,10 +287,18 @@ while True:
         if last_candle_time is None or (current_time - last_candle_time).seconds >= 3600:
             # Fetch the latest 1-hour kline data
             df = get_historical_klines(symbol, interval=60, limit=200)
+            if df is None or df.empty:
+                logging.error("Failed to fetch historical klines or received empty data.")
+                time.sleep(10)
+                continue
             df = df.sort_values('timestamp')
 
             # Calculate indicators
             df = calculate_indicators(df)
+            if df is None:
+                logging.error("Failed to calculate indicators.")
+                time.sleep(10)
+                continue
 
             # Get the latest data point
             last_row = df.iloc[-1]
@@ -305,7 +361,9 @@ while True:
         # Log bot status every 10 minutes
         if last_log_time is None or (current_time - last_log_time).total_seconds() >= 600:
             current_position, position_info = get_current_position()
-            if not current_position:
+            if current_position is None:
+                logging.info("Bot status: Unable to fetch current position.")
+            elif not current_position:
                 logging.info("Bot status: Out of trade.")
             else:
                 side = position_info['side']
@@ -330,6 +388,10 @@ while True:
 
         # Fetch the latest price every second
         latest_price = get_latest_price()
+        if latest_price is None:
+            logging.error("Failed to fetch latest price.")
+            time.sleep(5)
+            continue
 
         # Implement real-time entry and exit logic based on latest_price and indicators
         # Long and Short conditions
@@ -348,6 +410,10 @@ while True:
 
         # Get current position
         current_position, position_info = get_current_position()
+        if current_position is None:
+            logging.error("Failed to fetch current position.")
+            time.sleep(5)
+            continue
 
         # Implement trading logic
         if not current_position:
@@ -359,20 +425,33 @@ while True:
                 if (latest_price < lowerBand.iloc[-1]) and longCondition:
                     # Open long position
                     qty = 0.01  # Define your position size
-                    order = session.place_order(
-                        category='linear',
-                        symbol=symbol,
-                        side='Buy',
-                        orderType='Market',
-                        qty=str(qty),
-                        timeInForce='GTC',
-                        reduceOnly=False,
-                        closeOnTrigger=False
-                    )
+                    try:
+                        order = session.place_order(
+                            category='linear',
+                            symbol=symbol,
+                            side='Buy',
+                            orderType='Market',
+                            qty=str(qty),
+                            timeInForce='GTC',
+                            reduceOnly=False,
+                            closeOnTrigger=False
+                        )
+                        if order['retMsg'] != 'OK':
+                            logging.error(f"Error placing buy order: {order['retMsg']}")
+                            time.sleep(5)
+                            continue
+                    except Exception as e:
+                        logging.error(f"Exception placing buy order: {e}")
+                        time.sleep(5)
+                        continue
+
                     trade_id = datetime.utcnow().isoformat()
                     current_trade_id = trade_id
                     current_position_side = 'buy'
                     old_balance = get_account_balance()
+                    if old_balance is None:
+                        logging.error("Failed to fetch account balance.")
+                        old_balance = 0  # Set to zero to avoid calculation errors
                     entry_price = latest_price
                     stop_loss = entry_price * stoploss_lateral_long
                     stop_gain = entry_price * stopgain_lateral_long
@@ -383,8 +462,8 @@ while True:
                     commission_rate = 0.0003  # 0.03%
                     commission = entry_price * qty * commission_rate
                     previous_commission = commission
-                    potential_loss = ((entry_price - stop_loss) * qty) / old_balance * 100
-                    potential_gain = ((stop_gain - entry_price) * qty) / old_balance * 100
+                    potential_loss = ((entry_price - stop_loss) * qty) / old_balance * 100 if old_balance > 0 else 0
+                    potential_gain = ((stop_gain - entry_price) * qty) / old_balance * 100 if old_balance > 0 else 0
                     trade_data = {
                         'trade_id': trade_id,
                         'timestamp': trade_id,
@@ -413,20 +492,33 @@ while True:
                 elif (latest_price > upperBand.iloc[-1]) and shortCondition:
                     # Open short position
                     qty = 0.01  # Define your position size
-                    order = session.place_order(
-                        category='linear',
-                        symbol=symbol,
-                        side='Sell',
-                        orderType='Market',
-                        qty=str(qty),
-                        timeInForce='GTC',
-                        reduceOnly=False,
-                        closeOnTrigger=False
-                    )
+                    try:
+                        order = session.place_order(
+                            category='linear',
+                            symbol=symbol,
+                            side='Sell',
+                            orderType='Market',
+                            qty=str(qty),
+                            timeInForce='GTC',
+                            reduceOnly=False,
+                            closeOnTrigger=False
+                        )
+                        if order['retMsg'] != 'OK':
+                            logging.error(f"Error placing sell order: {order['retMsg']}")
+                            time.sleep(5)
+                            continue
+                    except Exception as e:
+                        logging.error(f"Exception placing sell order: {e}")
+                        time.sleep(5)
+                        continue
+
                     trade_id = datetime.utcnow().isoformat()
                     current_trade_id = trade_id
                     current_position_side = 'sell'
                     old_balance = get_account_balance()
+                    if old_balance is None:
+                        logging.error("Failed to fetch account balance.")
+                        old_balance = 0  # Set to zero to avoid calculation errors
                     entry_price = latest_price
                     stop_loss = entry_price * stoploss_lateral_short
                     stop_gain = entry_price * stopgain_lateral_short
@@ -437,8 +529,8 @@ while True:
                     commission_rate = 0.0003  # 0.03%
                     commission = entry_price * qty * commission_rate
                     previous_commission = commission
-                    potential_loss = ((stop_loss - entry_price) * qty) / old_balance * 100
-                    potential_gain = ((entry_price - stop_gain) * qty) / old_balance * 100
+                    potential_loss = ((stop_loss - entry_price) * qty) / old_balance * 100 if old_balance > 0 else 0
+                    potential_gain = ((entry_price - stop_gain) * qty) / old_balance * 100 if old_balance > 0 else 0
                     trade_data = {
                         'trade_id': trade_id,
                         'timestamp': trade_id,
@@ -469,20 +561,33 @@ while True:
                 if longCondition:
                     # Open long position
                     qty = 0.01  # Define your position size
-                    order = session.place_order(
-                        category='linear',
-                        symbol=symbol,
-                        side='Buy',
-                        orderType='Market',
-                        qty=str(qty),
-                        timeInForce='GTC',
-                        reduceOnly=False,
-                        closeOnTrigger=False
-                    )
+                    try:
+                        order = session.place_order(
+                            category='linear',
+                            symbol=symbol,
+                            side='Buy',
+                            orderType='Market',
+                            qty=str(qty),
+                            timeInForce='GTC',
+                            reduceOnly=False,
+                            closeOnTrigger=False
+                        )
+                        if order['retMsg'] != 'OK':
+                            logging.error(f"Error placing buy order: {order['retMsg']}")
+                            time.sleep(5)
+                            continue
+                    except Exception as e:
+                        logging.error(f"Exception placing buy order: {e}")
+                        time.sleep(5)
+                        continue
+
                     trade_id = datetime.utcnow().isoformat()
                     current_trade_id = trade_id
                     current_position_side = 'buy'
                     old_balance = get_account_balance()
+                    if old_balance is None:
+                        logging.error("Failed to fetch account balance.")
+                        old_balance = 0  # Set to zero to avoid calculation errors
                     entry_price = latest_price
                     stop_loss = entry_price * stoploss_normal_long
                     stop_gain = entry_price * stopgain_normal_long
@@ -493,8 +598,8 @@ while True:
                     commission_rate = 0.0003  # 0.03%
                     commission = entry_price * qty * commission_rate
                     previous_commission = commission
-                    potential_loss = ((entry_price - stop_loss) * qty) / old_balance * 100
-                    potential_gain = ((stop_gain - entry_price) * qty) / old_balance * 100
+                    potential_loss = ((entry_price - stop_loss) * qty) / old_balance * 100 if old_balance > 0 else 0
+                    potential_gain = ((stop_gain - entry_price) * qty) / old_balance * 100 if old_balance > 0 else 0
                     trade_data = {
                         'trade_id': trade_id,
                         'timestamp': trade_id,
@@ -523,20 +628,33 @@ while True:
                 elif shortCondition:
                     # Open short position
                     qty = 0.01  # Define your position size
-                    order = session.place_order(
-                        category='linear',
-                        symbol=symbol,
-                        side='Sell',
-                        orderType='Market',
-                        qty=str(qty),
-                        timeInForce='GTC',
-                        reduceOnly=False,
-                        closeOnTrigger=False
-                    )
+                    try:
+                        order = session.place_order(
+                            category='linear',
+                            symbol=symbol,
+                            side='Sell',
+                            orderType='Market',
+                            qty=str(qty),
+                            timeInForce='GTC',
+                            reduceOnly=False,
+                            closeOnTrigger=False
+                        )
+                        if order['retMsg'] != 'OK':
+                            logging.error(f"Error placing sell order: {order['retMsg']}")
+                            time.sleep(5)
+                            continue
+                    except Exception as e:
+                        logging.error(f"Exception placing sell order: {e}")
+                        time.sleep(5)
+                        continue
+
                     trade_id = datetime.utcnow().isoformat()
                     current_trade_id = trade_id
                     current_position_side = 'sell'
                     old_balance = get_account_balance()
+                    if old_balance is None:
+                        logging.error("Failed to fetch account balance.")
+                        old_balance = 0  # Set to zero to avoid calculation errors
                     entry_price = latest_price
                     stop_loss = entry_price * stoploss_normal_short
                     stop_gain = entry_price * stopgain_normal_short
@@ -547,8 +665,8 @@ while True:
                     commission_rate = 0.0003  # 0.03%
                     commission = entry_price * qty * commission_rate
                     previous_commission = commission
-                    potential_loss = ((stop_loss - entry_price) * qty) / old_balance * 100
-                    potential_gain = ((entry_price - stop_gain) * qty) / old_balance * 100
+                    potential_loss = ((stop_loss - entry_price) * qty) / old_balance * 100 if old_balance > 0 else 0
+                    potential_gain = ((entry_price - stop_gain) * qty) / old_balance * 100 if old_balance > 0 else 0
                     trade_data = {
                         'trade_id': trade_id,
                         'timestamp': trade_id,
@@ -588,18 +706,31 @@ while True:
                     take_profit = entry_price * stopgain_lateral_long
                     if latest_price <= stop_loss or shortCondition:
                         # Close position at stop loss or reversal
-                        order = session.place_order(
-                            category='linear',
-                            symbol=symbol,
-                            side='Sell',
-                            orderType='Market',
-                            qty=str(size),
-                            timeInForce='GTC',
-                            reduceOnly=True,
-                            closeOnTrigger=False
-                        )
+                        try:
+                            order = session.place_order(
+                                category='linear',
+                                symbol=symbol,
+                                side='Sell',
+                                orderType='Market',
+                                qty=str(size),
+                                timeInForce='GTC',
+                                reduceOnly=True,
+                                closeOnTrigger=False
+                            )
+                            if order['retMsg'] != 'OK':
+                                logging.error(f"Error closing long position: {order['retMsg']}")
+                                time.sleep(5)
+                                continue
+                        except Exception as e:
+                            logging.error(f"Exception closing long position: {e}")
+                            time.sleep(5)
+                            continue
+
                         sell_price = latest_price
                         new_balance = get_account_balance()
+                        if new_balance is None:
+                            logging.error("Failed to fetch account balance.")
+                            new_balance = 0
                         sell_time = datetime.utcnow().isoformat()
                         commission = sell_price * size * commission_rate
                         total_commission = previous_commission + commission
@@ -624,18 +755,31 @@ while True:
                         previous_commission = 0
                     elif latest_price >= take_profit:
                         # Close position at take profit
-                        order = session.place_order(
-                            category='linear',
-                            symbol=symbol,
-                            side='Sell',
-                            orderType='Market',
-                            qty=str(size),
-                            timeInForce='GTC',
-                            reduceOnly=True,
-                            closeOnTrigger=False
-                        )
+                        try:
+                            order = session.place_order(
+                                category='linear',
+                                symbol=symbol,
+                                side='Sell',
+                                orderType='Market',
+                                qty=str(size),
+                                timeInForce='GTC',
+                                reduceOnly=True,
+                                closeOnTrigger=False
+                            )
+                            if order['retMsg'] != 'OK':
+                                logging.error(f"Error closing long position: {order['retMsg']}")
+                                time.sleep(5)
+                                continue
+                        except Exception as e:
+                            logging.error(f"Exception closing long position: {e}")
+                            time.sleep(5)
+                            continue
+
                         sell_price = latest_price
                         new_balance = get_account_balance()
+                        if new_balance is None:
+                            logging.error("Failed to fetch account balance.")
+                            new_balance = 0
                         sell_time = datetime.utcnow().isoformat()
                         commission = sell_price * size * commission_rate
                         total_commission = previous_commission + commission
@@ -664,18 +808,31 @@ while True:
                     take_profit = entry_price * stopgain_lateral_short
                     if latest_price >= stop_loss or longCondition:
                         # Close position at stop loss or reversal
-                        order = session.place_order(
-                            category='linear',
-                            symbol=symbol,
-                            side='Buy',
-                            orderType='Market',
-                            qty=str(size),
-                            timeInForce='GTC',
-                            reduceOnly=True,
-                            closeOnTrigger=False
-                        )
+                        try:
+                            order = session.place_order(
+                                category='linear',
+                                symbol=symbol,
+                                side='Buy',
+                                orderType='Market',
+                                qty=str(size),
+                                timeInForce='GTC',
+                                reduceOnly=True,
+                                closeOnTrigger=False
+                            )
+                            if order['retMsg'] != 'OK':
+                                logging.error(f"Error closing short position: {order['retMsg']}")
+                                time.sleep(5)
+                                continue
+                        except Exception as e:
+                            logging.error(f"Exception closing short position: {e}")
+                            time.sleep(5)
+                            continue
+
                         sell_price = latest_price
                         new_balance = get_account_balance()
+                        if new_balance is None:
+                            logging.error("Failed to fetch account balance.")
+                            new_balance = 0
                         sell_time = datetime.utcnow().isoformat()
                         commission = sell_price * size * commission_rate
                         total_commission = previous_commission + commission
@@ -700,18 +857,31 @@ while True:
                         previous_commission = 0
                     elif latest_price <= take_profit:
                         # Close position at take profit
-                        order = session.place_order(
-                            category='linear',
-                            symbol=symbol,
-                            side='Buy',
-                            orderType='Market',
-                            qty=str(size),
-                            timeInForce='GTC',
-                            reduceOnly=True,
-                            closeOnTrigger=False
-                        )
+                        try:
+                            order = session.place_order(
+                                category='linear',
+                                symbol=symbol,
+                                side='Buy',
+                                orderType='Market',
+                                qty=str(size),
+                                timeInForce='GTC',
+                                reduceOnly=True,
+                                closeOnTrigger=False
+                            )
+                            if order['retMsg'] != 'OK':
+                                logging.error(f"Error closing short position: {order['retMsg']}")
+                                time.sleep(5)
+                                continue
+                        except Exception as e:
+                            logging.error(f"Exception closing short position: {e}")
+                            time.sleep(5)
+                            continue
+
                         sell_price = latest_price
                         new_balance = get_account_balance()
+                        if new_balance is None:
+                            logging.error("Failed to fetch account balance.")
+                            new_balance = 0
                         sell_time = datetime.utcnow().isoformat()
                         commission = sell_price * size * commission_rate
                         total_commission = previous_commission + commission
@@ -742,18 +912,31 @@ while True:
                     take_profit = entry_price * stopgain_normal_long
                     if latest_price <= stop_loss or shortCondition:
                         # Close position at stop loss or reversal
-                        order = session.place_order(
-                            category='linear',
-                            symbol=symbol,
-                            side='Sell',
-                            orderType='Market',
-                            qty=str(size),
-                            timeInForce='GTC',
-                            reduceOnly=True,
-                            closeOnTrigger=False
-                        )
+                        try:
+                            order = session.place_order(
+                                category='linear',
+                                symbol=symbol,
+                                side='Sell',
+                                orderType='Market',
+                                qty=str(size),
+                                timeInForce='GTC',
+                                reduceOnly=True,
+                                closeOnTrigger=False
+                            )
+                            if order['retMsg'] != 'OK':
+                                logging.error(f"Error closing long position: {order['retMsg']}")
+                                time.sleep(5)
+                                continue
+                        except Exception as e:
+                            logging.error(f"Exception closing long position: {e}")
+                            time.sleep(5)
+                            continue
+
                         sell_price = latest_price
                         new_balance = get_account_balance()
+                        if new_balance is None:
+                            logging.error("Failed to fetch account balance.")
+                            new_balance = 0
                         sell_time = datetime.utcnow().isoformat()
                         commission = sell_price * size * commission_rate
                         total_commission = previous_commission + commission
@@ -778,18 +961,31 @@ while True:
                         previous_commission = 0
                     elif latest_price >= take_profit:
                         # Close position at take profit
-                        order = session.place_order(
-                            category='linear',
-                            symbol=symbol,
-                            side='Sell',
-                            orderType='Market',
-                            qty=str(size),
-                            timeInForce='GTC',
-                            reduceOnly=True,
-                            closeOnTrigger=False
-                        )
+                        try:
+                            order = session.place_order(
+                                category='linear',
+                                symbol=symbol,
+                                side='Sell',
+                                orderType='Market',
+                                qty=str(size),
+                                timeInForce='GTC',
+                                reduceOnly=True,
+                                closeOnTrigger=False
+                            )
+                            if order['retMsg'] != 'OK':
+                                logging.error(f"Error closing long position: {order['retMsg']}")
+                                time.sleep(5)
+                                continue
+                        except Exception as e:
+                            logging.error(f"Exception closing long position: {e}")
+                            time.sleep(5)
+                            continue
+
                         sell_price = latest_price
                         new_balance = get_account_balance()
+                        if new_balance is None:
+                            logging.error("Failed to fetch account balance.")
+                            new_balance = 0
                         sell_time = datetime.utcnow().isoformat()
                         commission = sell_price * size * commission_rate
                         total_commission = previous_commission + commission
@@ -818,18 +1014,31 @@ while True:
                     take_profit = entry_price * stopgain_normal_short
                     if latest_price >= stop_loss or longCondition:
                         # Close position at stop loss or reversal
-                        order = session.place_order(
-                            category='linear',
-                            symbol=symbol,
-                            side='Buy',
-                            orderType='Market',
-                            qty=str(size),
-                            timeInForce='GTC',
-                            reduceOnly=True,
-                            closeOnTrigger=False
-                        )
+                        try:
+                            order = session.place_order(
+                                category='linear',
+                                symbol=symbol,
+                                side='Buy',
+                                orderType='Market',
+                                qty=str(size),
+                                timeInForce='GTC',
+                                reduceOnly=True,
+                                closeOnTrigger=False
+                            )
+                            if order['retMsg'] != 'OK':
+                                logging.error(f"Error closing short position: {order['retMsg']}")
+                                time.sleep(5)
+                                continue
+                        except Exception as e:
+                            logging.error(f"Exception closing short position: {e}")
+                            time.sleep(5)
+                            continue
+
                         sell_price = latest_price
                         new_balance = get_account_balance()
+                        if new_balance is None:
+                            logging.error("Failed to fetch account balance.")
+                            new_balance = 0
                         sell_time = datetime.utcnow().isoformat()
                         commission = sell_price * size * commission_rate
                         total_commission = previous_commission + commission
@@ -854,18 +1063,31 @@ while True:
                         previous_commission = 0
                     elif latest_price <= take_profit:
                         # Close position at take profit
-                        order = session.place_order(
-                            category='linear',
-                            symbol=symbol,
-                            side='Buy',
-                            orderType='Market',
-                            qty=str(size),
-                            timeInForce='GTC',
-                            reduceOnly=True,
-                            closeOnTrigger=False
-                        )
+                        try:
+                            order = session.place_order(
+                                category='linear',
+                                symbol=symbol,
+                                side='Buy',
+                                orderType='Market',
+                                qty=str(size),
+                                timeInForce='GTC',
+                                reduceOnly=True,
+                                closeOnTrigger=False
+                            )
+                            if order['retMsg'] != 'OK':
+                                logging.error(f"Error closing short position: {order['retMsg']}")
+                                time.sleep(5)
+                                continue
+                        except Exception as e:
+                            logging.error(f"Exception closing short position: {e}")
+                            time.sleep(5)
+                            continue
+
                         sell_price = latest_price
                         new_balance = get_account_balance()
+                        if new_balance is None:
+                            logging.error("Failed to fetch account balance.")
+                            new_balance = 0
                         sell_time = datetime.utcnow().isoformat()
                         commission = sell_price * size * commission_rate
                         total_commission = previous_commission + commission
@@ -892,7 +1114,11 @@ while True:
         # Wait for 1 second before next price check
         time.sleep(1)
 
+    except KeyboardInterrupt:
+        logging.info("Bot stopped manually.")
+        break
     except Exception as e:
-        logging.error(f"An error occurred: {e}")
+        logging.error(f"An unexpected error occurred: {e}")
         logging.error(traceback.format_exc())
-        time.sleep(5)
+        time.sleep(5)  # Brief pause before retrying
+        continue
