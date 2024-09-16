@@ -40,15 +40,34 @@ logging.basicConfig(
 # Adjust the path to /app/data/trade_history.csv
 trade_history_file = '/app/data/trade_history.csv'
 
-# Check if the trade history CSV exists, if not create it with headers
-if not os.path.isfile(trade_history_file):
-    columns = ['trade_id', 'timestamp', 'symbol', 'entry_price', 'exit_price', 'quantity',
-               'stop_loss', 'stop_gain', 'potential_loss', 'potential_gain', 'timeframe',
-               'setup', 'outcome', 'commission', 'old_balance', 'new_balance',
-               'secondary_stop_loss', 'secondary_stop_gain', 'exit_time']
-    df_trade_history = pd.DataFrame(columns=columns)
-    df_trade_history.to_csv(trade_history_file, index=False)
-    logging.info(f"Created new trade history file at {trade_history_file}")
+# Check if the trade history CSV exists and if it is empty, if so, create the headers
+def initialize_trade_history_file():
+    try:
+        if os.path.isfile(trade_history_file):
+            if os.stat(trade_history_file).st_size == 0:  # Check if file is empty
+                # Add headers if the file is empty
+                columns = ['trade_id', 'timestamp', 'symbol', 'entry_price', 'exit_price', 'quantity',
+                           'stop_loss', 'stop_gain', 'potential_loss', 'potential_gain', 'timeframe',
+                           'setup', 'outcome', 'commission', 'old_balance', 'new_balance',
+                           'secondary_stop_loss', 'secondary_stop_gain', 'exit_time']
+                df_trade_history = pd.DataFrame(columns=columns)
+                df_trade_history.to_csv(trade_history_file, index=False)
+                logging.info(f"Initialized empty trade history file at {trade_history_file} with headers.")
+        else:
+            # File does not exist, create it with headers
+            columns = ['trade_id', 'timestamp', 'symbol', 'entry_price', 'exit_price', 'quantity',
+                       'stop_loss', 'stop_gain', 'potential_loss', 'potential_gain', 'timeframe',
+                       'setup', 'outcome', 'commission', 'old_balance', 'new_balance',
+                       'secondary_stop_loss', 'secondary_stop_gain', 'exit_time']
+            df_trade_history = pd.DataFrame(columns=columns)
+            df_trade_history.to_csv(trade_history_file, index=False)
+            logging.info(f"Created new trade history file at {trade_history_file}")
+    except Exception as e:
+        logging.error(f"Error initializing trade history file: {e}")
+        sys.exit(1)
+
+# Initialize the trade history file
+initialize_trade_history_file()
 
 # Function to fetch the latest price
 def get_latest_price():
