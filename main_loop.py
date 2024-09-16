@@ -166,7 +166,6 @@ def get_current_position(retries=3, backoff_factor=5):
             
             # Verificar se a resposta foi bem-sucedida
             if positions['retMsg'] != 'OK':
-                logging.error(f"Erro ao buscar posições: {positions['retMsg']}")
                 return None, None
 
             positions_data = positions['result']['list']
@@ -180,7 +179,6 @@ def get_current_position(retries=3, backoff_factor=5):
                     return side.lower(), {'entry_price': entry_price, 'size': size, 'side': side}
                     
             # Se não houver posição aberta, retornar False
-            logging.info("Nenhuma posição aberta no momento.")
             return False, None
         
         except Exception as e:
@@ -283,6 +281,19 @@ def calculate_qty(total_equity, latest_price, leverage=1):
     except Exception as e:
         logging.error(f"Exception in calculate_qty: {e}")
         return None
+    
+out_of_trade_logged = False
+in_trade_logged = False
+
+# Função para logar o status de entrada na posição
+def log_entry(side, entry_price, size, stop_gain, stop_loss):
+    logging.info(f"Entrou em posição {side} com tamanho {size} BTC a {entry_price}.")
+    logging.info(f"Stopgain definido em {stop_gain}, Stoploss definido em {stop_loss}.")
+
+# Função para logar o status de saída da posição
+def log_exit(side, exit_price, size, outcome):
+    logging.info(f"Saindo da posição {side} com tamanho {size} BTC a {exit_price}.")
+    logging.info(f"Resultado da posição: {outcome}")
 
 # Trading parameters
 stopgain_lateral_long = 1.11
