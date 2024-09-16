@@ -181,7 +181,7 @@ def get_current_position(retries=3, backoff_factor=5):
                     
             # Se não houver posição aberta, retornar False
             logging.info("Nenhuma posição aberta no momento.")
-            return False
+            return False, None
         
         except Exception as e:
             logging.error(f"Erro inesperado no get_current_position: {e}")
@@ -190,7 +190,7 @@ def get_current_position(retries=3, backoff_factor=5):
             time.sleep(backoff_factor * attempt)
 
     logging.error("Falha ao obter posição atual após várias tentativas.")
-    return False
+    return False, None
 
 
 
