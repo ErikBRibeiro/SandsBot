@@ -159,9 +159,9 @@ def get_current_position(retries=3, backoff_factor=5):
     while attempt < retries:
         try:
             # Use o método positions ao invés de get_positions
-            positions = session.positions(
+            positions = session.get_positions(
                 category='linear',
-                symbol=symbol
+                symbol=symbol,
             )
             
             # Log the full API response for debugging purposes
