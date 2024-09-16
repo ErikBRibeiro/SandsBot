@@ -11,8 +11,8 @@ import traceback
 
 # Load API key and secret from .env file
 load_dotenv()
-API_KEY = os.getenv('BYBITAPI_KEY')
-API_SECRET = os.getenv('BYBITAPI_SECRET')
+API_KEY = os.getenv('BYBIT_API_KEY')
+API_SECRET = os.getenv('BYBIT_API_SECRET')
 
 # Initialize Bybit client using the HTTP class from unified_trading
 session = HTTP(
