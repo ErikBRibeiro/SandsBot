@@ -77,22 +77,6 @@ def get_account_balance():
         logging.error(f"Exception in get_account_balance: {e}")
         return None
 
-# Function to set leverage to 1x
-def set_leverage():
-    try:
-        response = session.set_leverage(
-            category='linear',
-            symbol=symbol,
-            buyLeverage='1',
-            sellLeverage='1'
-        )
-        if response['retMsg'] == 'OK':
-            logging.info(f"Leverage set to 1x for {symbol}")
-        else:
-            logging.error(f"Failed to set leverage: {response['retMsg']}")
-    except Exception as e:
-        logging.error(f"Error setting leverage: {e}")
-
 # Functions to log trade entries
 def log_trade_entry(trade_data):
     try:
@@ -126,9 +110,6 @@ while True:
 
         # Force a buy order of $100 immediately if not already executed
         if not trade_executed:
-            # Ensure leverage is set to 1x before placing a new order
-            set_leverage()
-
             # Calculate quantity to buy $100 worth of BTC
             qty = 100 / latest_price  # Calculate quantity based on $100 and latest price
             qty = round(qty, 6)  # Round to 6 decimal places for precision
@@ -159,7 +140,7 @@ while True:
                 logging.error("Failed to fetch account balance.")
                 old_balance = 0  # Set to zero to avoid calculation errors
             entry_price = latest_price
-            commission_rate = 0.0003  # 0.03% (taker fee for market order)
+            commission_rate = 0.0006  # 0.06% (taker fee for market order)
             commission = entry_price * qty * commission_rate
             trade_data = {
                 'trade_id': trade_id,
