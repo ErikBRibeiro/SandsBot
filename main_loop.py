@@ -155,15 +155,28 @@ def crossunder(series1, series2):
 
 # Function to get current position
 # Function to get current position with improved error handling and retry logic
+# Function to get current position with detailed request/response logging
 def get_current_position(retries=3, backoff_factor=5):
     attempt = 0
     while attempt < retries:
         try:
+            # Start a session to capture both request and response
+            session = requests.Session()
+            
+            # Making the API request using the pybit session
             positions = session.get_positions(
                 category='linear',
                 symbol=symbol
             )
-            
+
+            # Log the full API request and response for debugging purposes
+            logging.info(f"Request URL: {session.endpoint + '/v2/private/position/list'}")
+            logging.info(f"Request Headers: {session.headers}")
+            logging.info(f"Request Body: {{'symbol': '{symbol}'}}")
+
+            # Log the full API response for debugging purposes
+            logging.info(f"API Response: {positions}")
+
             # Check if the API response was successful
             if positions['retMsg'] != 'OK':
                 logging.error(f"Error fetching positions: {positions['retMsg']}")
@@ -188,27 +201,27 @@ def get_current_position(retries=3, backoff_factor=5):
                     
             # No open positions found
             return None, None
-        
-        except RequestException as req_error:
+
+        except requests.RequestException as req_error:
             logging.error(f"Network-related error occurred: {req_error}")
             attempt += 1
             time.sleep(backoff_factor * attempt)
-        
-        except HTTPError as http_error:
+
+        except requests.HTTPError as http_error:
             logging.error(f"HTTP error occurred: {http_error}")
             attempt += 1
             time.sleep(backoff_factor * attempt)
-        
-        except ConnectionError as conn_error:
+
+        except requests.ConnectionError as conn_error:
             logging.error(f"Error connecting to API: {conn_error}")
             attempt += 1
             time.sleep(backoff_factor * attempt)
-        
-        except Timeout as timeout_error:
+
+        except requests.Timeout as timeout_error:
             logging.error(f"Request timed out: {timeout_error}")
             attempt += 1
             time.sleep(backoff_factor * attempt)
-        
+
         except Exception as e:
             logging.error(f"Unexpected error in get_current_position: {e}")
             logging.error(traceback.format_exc())
