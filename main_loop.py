@@ -42,10 +42,10 @@ trade_history_file = '/app/data/trade_history.csv'
 
 # Check if the trade history CSV exists, if not create it with headers
 if not os.path.isfile(trade_history_file):
-    columns = ['trade_id', 'timestamp', 'symbol', 'buy_price', 'sell_price', 'quantity',
+    columns = ['trade_id', 'timestamp', 'symbol', 'entry_price', 'exit_price', 'quantity',
                'stop_loss', 'stop_gain', 'potential_loss', 'potential_gain', 'timeframe',
                'setup', 'outcome', 'commission', 'old_balance', 'new_balance',
-               'secondary_stop_loss', 'secondary_stop_gain', 'sell_time']
+               'secondary_stop_loss', 'secondary_stop_gain', 'exit_time']
     df_trade_history = pd.DataFrame(columns=columns)
     df_trade_history.to_csv(trade_history_file, index=False)
     logging.info(f"Created new trade history file at {trade_history_file}")
@@ -85,40 +85,40 @@ def log_trade_entry(trade_data):
         if os.path.isfile(trade_history_file):
             df_trade_history = pd.read_csv(trade_history_file)
         else:
-            columns = ['trade_id', 'timestamp', 'symbol', 'buy_price', 'sell_price', 'quantity',
+            columns = ['trade_id', 'timestamp', 'symbol', 'entry_price', 'exit_price', 'quantity',
                        'stop_loss', 'stop_gain', 'potential_loss', 'potential_gain', 'timeframe',
                        'setup', 'outcome', 'commission', 'old_balance', 'new_balance',
-                       'secondary_stop_loss', 'secondary_stop_gain', 'sell_time']
+                       'secondary_stop_loss', 'secondary_stop_gain', 'exit_time']
             df_trade_history = pd.DataFrame(columns=columns)
         df_trade_history = df_trade_history.append(trade_data, ignore_index=True)
         df_trade_history.to_csv(trade_history_file, index=False)
     except Exception as e:
         logging.error(f"Exception in log_trade_entry: {e}")
 
-# Function to update the trade with sell details
-def update_trade_with_sell(trade_id, sell_price, sell_time, commission):
+# Function to update the trade with exit details
+def update_trade_with_exit(trade_id, exit_price, exit_time, commission):
     try:
         df_trade_history = pd.read_csv(trade_history_file)
         
         # Locate the trade by trade_id
-        mask = (df_trade_history['trade_id'] == trade_id) & (df_trade_history['sell_price'].isna())
+        mask = (df_trade_history['trade_id'] == trade_id) & (df_trade_history['exit_price'].isna())
         if not mask.any():
-            logging.error(f"Trade with ID {trade_id} not found or already sold.")
+            logging.error(f"Trade with ID {trade_id} not found or already exited.")
             return
 
-        # Update the trade with sell information
-        df_trade_history.loc[mask, 'sell_price'] = sell_price
-        df_trade_history.loc[mask, 'sell_time'] = sell_time
-        df_trade_history.loc[mask, 'commission'] += commission  # Add sell commission
+        # Update the trade with exit information
+        df_trade_history.loc[mask, 'exit_price'] = exit_price
+        df_trade_history.loc[mask, 'exit_time'] = exit_time
+        df_trade_history.loc[mask, 'commission'] += commission  # Add exit commission
         df_trade_history.to_csv(trade_history_file, index=False)
 
-        logging.info(f"Trade {trade_id} updated with sell price: {sell_price}, sell time: {sell_time}, commission: {commission}")
+        logging.info(f"Trade {trade_id} updated with exit price: {exit_price}, exit time: {exit_time}, commission: {commission}")
     except Exception as e:
-        logging.error(f"Exception in update_trade_with_sell: {e}")
+        logging.error(f"Exception in update_trade_with_exit: {e}")
 
 # Initialize variables
 trade_executed = False  # Flag to check if the trade has been executed
-sell_executed = False   # Flag to check if the sell has been executed
+exit_executed = False   # Flag to check if the exit has been executed
 
 # Main trading loop
 while True:
@@ -164,8 +164,8 @@ while True:
                 'trade_id': trade_id,
                 'timestamp': trade_id,
                 'symbol': symbol,
-                'buy_price': '',  # Short trade, so no buy price
-                'sell_price': entry_price,  # Entry price for short
+                'entry_price': entry_price,  # Entry price for both short and long
+                'exit_price': '',  # Will be updated on exit
                 'quantity': qty,
                 'stop_loss': '',
                 'stop_gain': '',
@@ -179,17 +179,17 @@ while True:
                 'outcome': '',
                 'secondary_stop_loss': '',
                 'secondary_stop_gain': '',
-                'sell_time': ''
+                'exit_time': ''
             }
             log_trade_entry(trade_data)
-            logging.info(f"Forced short order executed at {trade_id}, price: {entry_price}, quantity: {qty}")
+            logging.info(f"Forced short order executed at {trade_id}, entry price: {entry_price}, quantity: {qty}")
             trade_executed = True  # Set flag to prevent re-entry
 
             # Wait 20 seconds before exiting the short trade
             time.sleep(20)
 
         # Step 2: Exit the short trade by buying back (close the short position)
-        if trade_executed and not sell_executed:
+        if trade_executed and not exit_executed:
             try:
                 order = session.place_order(
                     category='linear',
@@ -211,13 +211,13 @@ while True:
                 continue
 
             # Log the trade exit
-            sell_time = datetime.utcnow().isoformat()
-            sell_price = latest_price
-            commission = sell_price * qty * commission_rate  # Calculate commission for the exit
-            update_trade_with_sell(trade_id, sell_price, sell_time, commission)
+            exit_time = datetime.utcnow().isoformat()
+            exit_price = latest_price
+            commission = exit_price * qty * commission_rate  # Calculate commission for the exit
+            update_trade_with_exit(trade_id, exit_price, exit_time, commission)
 
-            logging.info(f"Forced exit from short position at {sell_time}, price: {sell_price}, quantity: {qty}")
-            sell_executed = True  # Set flag to prevent re-entry
+            logging.info(f"Forced exit from short position at {exit_time}, exit price: {exit_price}, quantity: {qty}")
+            exit_executed = True  # Set flag to prevent re-entry
 
             # Exit the loop after the trade is closed
             break
