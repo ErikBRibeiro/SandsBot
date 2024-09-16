@@ -499,7 +499,7 @@ while True:
                     secondary_stop_gain = stop_gain
                     current_secondary_stop_loss = secondary_stop_loss
                     current_secondary_stop_gain = secondary_stop_gain
-                    commission_rate = 0.0003  # 0.03%
+                    commission_rate = 0.0006  # 0.03%
                     commission = entry_price * qty * commission_rate
                     previous_commission = commission
                     potential_loss = ((entry_price - stop_loss) * qty) / old_balance * 100 if old_balance > 0 else 0
@@ -571,7 +571,7 @@ while True:
                     secondary_stop_gain = stop_gain
                     current_secondary_stop_loss = secondary_stop_loss
                     current_secondary_stop_gain = secondary_stop_gain
-                    commission_rate = 0.0003  # 0.03%
+                    commission_rate = 0.0006  # 0.03%
                     commission = entry_price * qty * commission_rate
                     previous_commission = commission
                     potential_loss = ((stop_loss - entry_price) * qty) / old_balance * 100 if old_balance > 0 else 0
@@ -751,7 +751,7 @@ while True:
             side = position_info['side']
             entry_price = position_info['entry_price']
             size = position_info['size']
-            commission_rate = 0.0003  # 0.03%
+            commission_rate = 0.0006  # 0.03%
             if isLateral.iloc[-1]:
                 # Lateral market exit conditions
                 if side == 'buy':
