@@ -37,11 +37,18 @@ logging.basicConfig(
     ]
 )
 
-# Load the existing trade history
-trade_history_file = 'trade_history.csv'
+# Adjust the path to where the CSV file should be created
+trade_history_file = '/app/data/trade_history.csv'
+
+# Check if the trade history CSV exists, if not create it with headers
 if not os.path.isfile(trade_history_file):
-    logging.error(f"{trade_history_file} not found. Ensure you have a trade history to update.")
-    sys.exit(1)
+    columns = ['trade_id', 'timestamp', 'symbol', 'buy_price', 'sell_price', 'quantity',
+               'stop_loss', 'stop_gain', 'potential_loss', 'potential_gain', 'timeframe',
+               'setup', 'outcome', 'commission', 'old_balance', 'new_balance',
+               'secondary_stop_loss', 'secondary_stop_gain', 'sell_time']
+    df_trade_history = pd.DataFrame(columns=columns)
+    df_trade_history.to_csv(trade_history_file, index=False)
+    logging.info(f"Created new trade history file at {trade_history_file}")
 
 # Function to fetch the latest price
 def get_latest_price():
