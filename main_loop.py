@@ -154,26 +154,71 @@ def crossunder(series1, series2):
         return pd.Series([False])
 
 # Function to get current position
-def get_current_position():
-    try:
-        positions = session.get_positions(
-            category='linear',
-            symbol=symbol
-        )
-        if positions['retMsg'] != 'OK':
-            logging.error(f"Error fetching positions: {positions['retMsg']}")
+# Function to get current position with improved error handling and retry logic
+def get_current_position(retries=3, backoff_factor=5):
+    attempt = 0
+    while attempt < retries:
+        try:
+            positions = session.get_positions(
+                category='linear',
+                symbol=symbol
+            )
+            
+            # Check if the API response was successful
+            if positions['retMsg'] != 'OK':
+                logging.error(f"Error fetching positions: {positions['retMsg']}")
+                
+                # Handle specific rate limit error
+                if positions['retCode'] == 10016:  # Assuming 10016 is the rate limit code
+                    logging.warning("Rate limit exceeded. Retrying with backoff...")
+                    attempt += 1
+                    time.sleep(backoff_factor * attempt)  # Exponential backoff
+                    continue
+                return None, None
+
+            positions_data = positions['result']['list']
+
+            # Check if there is any open position
+            for pos in positions_data:
+                if float(pos['size']) != 0:
+                    side = pos['side']
+                    entry_price = float(pos['avgPrice'])
+                    size = float(pos['size'])
+                    return side.lower(), {'entry_price': entry_price, 'size': size, 'side': side}
+                    
+            # No open positions found
             return None, None
-        positions_data = positions['result']['list']
-        for pos in positions_data:
-            if float(pos['size']) != 0:
-                side = pos['side']
-                entry_price = float(pos['avgPrice'])
-                size = float(pos['size'])
-                return side.lower(), {'entry_price': entry_price, 'size': size, 'side': side}
-        return None, None
-    except Exception as e:
-        logging.error(f"Exception in get_current_position: {e}")
-        return None, None
+        
+        except RequestException as req_error:
+            logging.error(f"Network-related error occurred: {req_error}")
+            attempt += 1
+            time.sleep(backoff_factor * attempt)
+        
+        except HTTPError as http_error:
+            logging.error(f"HTTP error occurred: {http_error}")
+            attempt += 1
+            time.sleep(backoff_factor * attempt)
+        
+        except ConnectionError as conn_error:
+            logging.error(f"Error connecting to API: {conn_error}")
+            attempt += 1
+            time.sleep(backoff_factor * attempt)
+        
+        except Timeout as timeout_error:
+            logging.error(f"Request timed out: {timeout_error}")
+            attempt += 1
+            time.sleep(backoff_factor * attempt)
+        
+        except Exception as e:
+            logging.error(f"Unexpected error in get_current_position: {e}")
+            logging.error(traceback.format_exc())
+            attempt += 1
+            time.sleep(backoff_factor * attempt)
+
+    # If all retries fail
+    logging.error("Failed to fetch current position after multiple attempts.")
+    return None, None
+
 
 # Function to fetch the latest price
 def get_latest_price():
