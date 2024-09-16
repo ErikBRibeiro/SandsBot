@@ -111,9 +111,7 @@ while True:
         # Force a buy order of $100 immediately if not already executed
         if not trade_executed:
             # Calculate quantity to buy $100 worth of BTC
-            qty = 100 / latest_price  # Calculate quantity based on $100 and latest price
-            qty = round(qty, 6)  # Round to 6 decimal places for precision
-
+            qty = 0.001
             try:
                 order = session.place_order(
                     category='linear',
