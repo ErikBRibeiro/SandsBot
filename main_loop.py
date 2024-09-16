@@ -124,9 +124,11 @@ def get_current_position():
     )
     positions_data = positions['result']['list']
     for pos in positions_data:
-        if float(pos['size']) > 0:
+        # Uncomment the next line to log the position data for debugging
+        logging.info(f"Position data: {pos}")
+        if float(pos['size']) != 0:
             side = pos['side']
-            entry_price = float(pos['entryPrice'])
+            entry_price = float(pos['avgPrice'])
             size = float(pos['size'])
             return side.lower(), {'entry_price': entry_price, 'size': size, 'side': side}
     return None, None
