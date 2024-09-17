@@ -17,6 +17,7 @@ except FileNotFoundError:
         "secondary_stop_gain", "exit_time", "type", "entry_lateral",
         "exit_lateral"
     ]
+    print('achou não')
     df = pd.DataFrame(columns=colunas)
 
 # Definir os dados da nova linha
