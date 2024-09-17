@@ -46,7 +46,8 @@ nova_linha = {
 }
 
 # Adicionar a nova linha ao DataFrame
-df = df.append(nova_linha, ignore_index=True)
+df_nova = pd.DataFrame([nova_linha])
+df_atualizado = pd.concat([df, df_nova], ignore_index=True)
 
 # Salvar o DataFrame atualizado de volta no CSV
 df.to_csv(caminho_csv, index=False)
