@@ -176,7 +176,7 @@ def get_current_position(retries=3, backoff_factor=5):
                 if size != 0:
                     side = pos['side']
                     entry_price = float(pos['avgPrice'])
-                    return side.lower(), {'entry_price': entry_price, 'size': size, 'side': side}
+                    return side.lower(), {'entry_price': entry_price, 'size': size, 'side': side.lower()}
                     
             # Se não houver posição aberta, retornar False
             return False, None
@@ -215,8 +215,10 @@ def get_account_balance():
         if balance_info['retMsg'] != 'OK':
             logging.error(f"Error fetching account balance: {balance_info['retMsg']}")
             return None
-        total_equity = float(balance_info['result']['totalEquity'])
-        print(total_equity)
+        
+        # Acessando o totalEquity corretamente na lista dentro de result
+        total_equity = float(balance_info['result']['list'][0]['totalEquity'])
+        print(f"Total Equity: {total_equity}")
         return total_equity
     except Exception as e:
         logging.error(f"Exception in get_account_balance: {e}")
@@ -409,6 +411,7 @@ while True:
                 logging.info("Bot status: Out of trade.")
             else:
                 side = position_info['side']
+                print(side)
                 entry_price = position_info['entry_price']
                 if isLateral.iloc[-1]:
                     if side == 'buy':
