@@ -216,6 +216,7 @@ def get_account_balance():
             logging.error(f"Error fetching account balance: {balance_info['retMsg']}")
             return None
         total_equity = float(balance_info['result']['totalEquity'])
+        print(total_equity)
         return total_equity
     except Exception as e:
         logging.error(f"Exception in get_account_balance: {e}")
@@ -465,13 +466,14 @@ while True:
                     # Open long position
                     total_equity = get_account_balance()
                     qty = calculate_qty(total_equity, latest_price)  # Define your position size
+                    '''
                     try:
                         order = session.place_order(
                             category='linear',
                             symbol=symbol,
                             side='Buy',
                             orderType='Market',
-                            qty=str(qty),
+                            qty=str(0.01),
                             timeInForce='GTC',
                             reduceOnly=False,
                             closeOnTrigger=False
@@ -484,7 +486,7 @@ while True:
                         logging.error(f"Exception placing buy order: {e}")
                         time.sleep(5)
                         continue
-
+                    '''
                     trade_id = datetime.utcnow().isoformat()
                     current_trade_id = trade_id
                     current_position_side = 'buy'
@@ -537,6 +539,7 @@ while True:
                     # Open short position
                     total_equity = get_account_balance()
                     qty = calculate_qty(total_equity, latest_price) # Define your position size
+                    '''
                     try:
                         order = session.place_order(
                             category='linear',
@@ -556,7 +559,7 @@ while True:
                         logging.error(f"Exception placing sell order: {e}")
                         time.sleep(5)
                         continue
-
+                    '''
                     trade_id = datetime.utcnow().isoformat()
                     current_trade_id = trade_id
                     current_position_side = 'sell'
@@ -607,6 +610,7 @@ while True:
                     # Open long position
                     total_equity = get_account_balance()
                     qty = calculate_qty(total_equity, latest_price)  # Define your position size
+                    '''
                     try:
                         order = session.place_order(
                             category='linear',
@@ -626,7 +630,7 @@ while True:
                         logging.error(f"Exception placing buy order: {e}")
                         time.sleep(5)
                         continue
-
+                    '''
                     trade_id = datetime.utcnow().isoformat()
                     current_trade_id = trade_id
                     current_position_side = 'buy'
@@ -678,6 +682,7 @@ while True:
                     # Open short position
                     total_equity = get_account_balance()
                     qty = calculate_qty(total_equity, latest_price)  # Define your position size
+                    '''
                     try:
                         order = session.place_order(
                             category='linear',
@@ -697,7 +702,7 @@ while True:
                         logging.error(f"Exception placing sell order: {e}")
                         time.sleep(5)
                         continue
-
+                    '''
                     trade_id = datetime.utcnow().isoformat()
                     current_trade_id = trade_id
                     current_position_side = 'sell'
@@ -760,6 +765,7 @@ while True:
                     take_profit = entry_price * stopgain_lateral_long
                     if latest_price <= stop_loss or shortCondition:
                         # Close position at stop loss or reversal
+                        '''
                         try:
                             order = session.place_order(
                                 category='linear',
@@ -779,7 +785,7 @@ while True:
                             logging.error(f"Exception closing long position: {e}")
                             time.sleep(5)
                             continue
-
+                        '''
                         sell_price = latest_price
                         new_balance = get_account_balance()
                         if new_balance is None:
@@ -811,6 +817,7 @@ while True:
                         previous_commission = 0
                     elif latest_price >= take_profit:
                         # Close position at take profit
+                        '''
                         try:
                             order = session.place_order(
                                 category='linear',
@@ -830,7 +837,7 @@ while True:
                             logging.error(f"Exception closing long position: {e}")
                             time.sleep(5)
                             continue
-
+                        '''
                         sell_price = latest_price
                         new_balance = get_account_balance()
                         if new_balance is None:
@@ -866,6 +873,7 @@ while True:
                     take_profit = entry_price * stopgain_lateral_short
                     if latest_price >= stop_loss or longCondition:
                         # Close position at stop loss or reversal
+                        '''
                         try:
                             order = session.place_order(
                                 category='linear',
@@ -885,7 +893,7 @@ while True:
                             logging.error(f"Exception closing short position: {e}")
                             time.sleep(5)
                             continue
-
+                        '''
                         sell_price = latest_price
                         new_balance = get_account_balance()
                         if new_balance is None:
@@ -918,6 +926,7 @@ while True:
                         previous_commission = 0
                     elif latest_price <= take_profit:
                         # Close position at take profit
+                        '''
                         try:
                             order = session.place_order(
                                 category='linear',
@@ -937,7 +946,7 @@ while True:
                             logging.error(f"Exception closing short position: {e}")
                             time.sleep(5)
                             continue
-
+                        '''
                         sell_price = latest_price
                         new_balance = get_account_balance()
                         if new_balance is None:
@@ -976,6 +985,7 @@ while True:
                     take_profit = entry_price * stopgain_normal_long
                     if latest_price <= stop_loss or shortCondition:
                         # Close position at stop loss or reversal
+                        '''
                         try:
                             order = session.place_order(
                                 category='linear',
@@ -995,7 +1005,7 @@ while True:
                             logging.error(f"Exception closing long position: {e}")
                             time.sleep(5)
                             continue
-
+                        '''
                         sell_price = latest_price
                         new_balance = get_account_balance()
                         if new_balance is None:
@@ -1028,6 +1038,7 @@ while True:
                         previous_commission = 0
                     elif latest_price >= take_profit:
                         # Close position at take profit
+                        '''
                         try:
                             order = session.place_order(
                                 category='linear',
@@ -1047,7 +1058,7 @@ while True:
                             logging.error(f"Exception closing long position: {e}")
                             time.sleep(5)
                             continue
-
+                        '''
                         sell_price = latest_price
                         new_balance = get_account_balance()
                         if new_balance is None:
@@ -1084,6 +1095,7 @@ while True:
                     take_profit = entry_price * stopgain_normal_short
                     if latest_price >= stop_loss or longCondition:
                         # Close position at stop loss or reversal
+                        '''
                         try:
                             order = session.place_order(
                                 category='linear',
@@ -1103,7 +1115,7 @@ while True:
                             logging.error(f"Exception closing short position: {e}")
                             time.sleep(5)
                             continue
-
+                        '''
                         sell_price = latest_price
                         new_balance = get_account_balance()
                         if new_balance is None:
@@ -1135,6 +1147,7 @@ while True:
                         previous_commission = 0
                     elif latest_price <= take_profit:
                         # Close position at take profit
+                        '''
                         try:
                             order = session.place_order(
                                 category='linear',
@@ -1154,7 +1167,7 @@ while True:
                             logging.error(f"Exception closing short position: {e}")
                             time.sleep(5)
                             continue
-
+                        '''
                         sell_price = latest_price
                         new_balance = get_account_balance()
                         if new_balance is None:
