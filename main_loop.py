@@ -51,6 +51,13 @@ df_nova = pd.DataFrame([nova_linha])
 df_atualizado = pd.concat([df, df_nova], ignore_index=True)
 
 # Salvar o DataFrame atualizado de volta no CSV
-df.to_csv(caminho_csv, index=False)
+df_atualizado.to_csv(caminho_csv, index=False)
+
+print(df)
+print('-'*50)
+print(df_nova)
+print('-'*50)
+print(df_atualizado)
+print('-'*50)
 
 print("Nova linha adicionada com sucesso!")
