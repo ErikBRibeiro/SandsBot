@@ -389,7 +389,7 @@ while True:
         # Check if it's time to update the indicators (every hour)
         if last_candle_time is None or (current_time - last_candle_time).seconds >= 3600:
             # Fetch the latest 1-hour kline data
-            df = get_historical_klines(symbol, interval=60, limit=200)
+            df = get_historical_klines(symbol, interval=60, limit=42000)
             if df is None or df.empty:
                 logging.error("Failed to fetch historical klines or received empty data.")
                 time.sleep(10)
