@@ -164,7 +164,6 @@ def calculate_indicators(df):
         macdSignal = 9
         adxLength = 14
         adxSmoothing = 14
-        adxThreshold = 12
         bbLength = 20
         bbMultiplier = 2
         lateralThreshold = 0.005
@@ -386,7 +385,7 @@ stopgain_normal_long = 1.32
 stoploss_normal_long = 0.92
 stopgain_normal_short = 0.77
 stoploss_normal_short = 1.12
-
+adxThreshold = 12
 trade_count = 0  # Contador de trades
 
 # Inicializar variáveis
