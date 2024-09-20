@@ -88,9 +88,9 @@ def get_historical_klines(symbol, interval, limit):
 # Function to calculate indicators
 def calculate_indicators(df):
     try:
-        close_price = df['close'].values
-        high_price = df['high'].values
-        low_price = df['low'].values
+        close_price = df['close']
+        high_price = df['high']
+        low_price = df['low']
 
         # Parameters
         emaShortLength = 11
@@ -106,20 +106,79 @@ def calculate_indicators(df):
         bbMultiplier = 1.7
         lateralThreshold = 0.005
 
-        # Calculating indicators using TA-Lib
+        # Calculating indicators
+
+        # EMA Short and Long
         emaShort = talib.EMA(close_price, emaShortLength)
         emaLong = talib.EMA(close_price, emaLongLength)
+        print(f'Ema Short: {emaShort}')
+        print(f'Ema Long: {emaLong}')
+        # RSI
         rsi = talib.RSI(close_price, timeperiod=rsiLength)
-        macdLine, signalLine, macdHist = talib.MACD(
-            close_price, fastperiod=macdShort, slowperiod=macdLong, signalperiod=macdSignal
-        )
+
+        # MACD calculated manually
+        def macd_func(series, fast_period, slow_period, signal_period):
+            ema_fast = talib.EMA(series, fast_period)
+            ema_slow = talib.EMA(series, slow_period)
+            macd_line = ema_fast - ema_slow
+            signal_line = talib.EMA(macd_line, signal_period)
+            macd_hist = macd_line - signal_line
+            return macd_line, signal_line, macd_hist
+
+        macdLine, signalLine, macdHist = macd_func(close_price, macdShort, macdLong, macdSignal)
+
+        # Bollinger Bands
         upperBand, middleBand, lowerBand = talib.BBANDS(
             close_price, timeperiod=bbLength, nbdevup=bbMultiplier, nbdevdn=bbMultiplier
         )
-        adx = talib.ADX(high_price, low_price, close_price, timeperiod=adxSmoothing)
+
+        # ADX calculated manually
+        def get_adx_manual(high, low, close, di_lookback, adx_smoothing):
+            tr = []
+            previous_close = close.iloc[0]
+            plus_dm = []
+            minus_dm = []
+
+            for i in range(1, len(close)):
+                current_plus_dm = high.iloc[i] - high.iloc[i-1]
+                current_minus_dm = low.iloc[i-1] - low.iloc[i]
+                plus_dm.append(max(current_plus_dm, 0) if current_plus_dm > current_minus_dm else 0)
+                minus_dm.append(max(current_minus_dm, 0) if current_minus_dm > current_plus_dm else 0)
+
+                tr1 = high.iloc[i] - low.iloc[i]
+                tr2 = abs(high.iloc[i] - previous_close)
+                tr3 = abs(low.iloc[i] - previous_close)
+                true_range = max(tr1, tr2, tr3)
+                tr.append(true_range)
+
+                previous_close = close.iloc[i]
+
+            tr.insert(0, np.nan)
+            plus_dm.insert(0, np.nan)
+            minus_dm.insert(0, np.nan)
+
+            tr = pd.Series(tr)
+            plus_dm = pd.Series(plus_dm)
+            minus_dm = pd.Series(minus_dm)
+
+            atr = tr.rolling(window=di_lookback).mean()
+
+            plus_di = 100 * (plus_dm.ewm(alpha=1/di_lookback, adjust=False).mean() / atr)
+            minus_di = 100 * (minus_dm.ewm(alpha=1/di_lookback, adjust=False).mean() / atr)
+
+            dx = (abs(plus_di - minus_di) / (plus_di + minus_di)) * 100
+            adx = dx.ewm(alpha=1/adx_smoothing, adjust=False).mean()
+
+            return plus_di, minus_di, adx
+
+        plus_di, minus_di, adx = get_adx_manual(high_price, low_price, close_price, adxLength, adxSmoothing)
+        adx = adx.fillna(0).astype(int)
+
+        # Bandwidth and isLateral
         bandWidth = (upperBand - lowerBand) / middleBand
         isLateral = bandWidth < lateralThreshold
 
+        # Assign to dataframe
         df['emaShort'] = emaShort
         df['emaLong'] = emaLong
         df['rsi'] = rsi
@@ -320,7 +379,8 @@ current_position_side = None
 entry_price = None
 current_secondary_stop_loss = None
 current_secondary_stop_gain = None
-previous_commission = 0  # To store commission from entry
+entry_commission = 0
+exit_commission = 0
 
 # Main trading loop
 while True:
@@ -474,7 +534,7 @@ while True:
                             symbol=symbol,
                             side='Buy',
                             orderType='Market',
-                            qty=str(0.01),
+                            qty=str(qty),
                             timeInForce='GTC',
                             reduceOnly=False,
                             closeOnTrigger=False
@@ -491,10 +551,7 @@ while True:
                     trade_id = datetime.utcnow().isoformat()
                     current_trade_id = trade_id
                     current_position_side = 'buy'
-                    old_balance = get_account_balance()
-                    if old_balance is None:
-                        logging.error("Failed to fetch account balance.")
-                        old_balance = 0  # Set to zero to avoid calculation errors
+                    old_balance = total_equity
                     entry_price = latest_price
                     stop_loss = entry_price * stoploss_lateral_long
                     stop_gain = entry_price * stopgain_lateral_long
@@ -502,9 +559,8 @@ while True:
                     secondary_stop_gain = stop_gain
                     current_secondary_stop_loss = secondary_stop_loss
                     current_secondary_stop_gain = secondary_stop_gain
-                    commission_rate = 0.0006  # 0.03%
-                    commission = entry_price * qty * commission_rate
-                    previous_commission = commission
+                    commission_rate = 0.00032  # 0.032%
+                    entry_commission = old_balance * commission_rate
                     potential_loss = ((entry_price - stop_loss) * qty) / old_balance * 100 if old_balance > 0 else 0
                     potential_gain = ((stop_gain - entry_price) * qty) / old_balance * 100 if old_balance > 0 else 0
                     trade_data = {
@@ -518,8 +574,8 @@ while True:
                         'stop_gain': stop_gain,
                         'potential_loss': potential_loss,
                         'potential_gain': potential_gain,
-                        'commission': commission,
-                        'old_balance': old_balance,
+                        'commission': entry_commission,
+                        'old_balance': old_balance - entry_commission,  # Subtract commission
                         'new_balance': '',
                         'timeframe': '1h',
                         'setup': 'GPTAN',
@@ -564,10 +620,7 @@ while True:
                     trade_id = datetime.utcnow().isoformat()
                     current_trade_id = trade_id
                     current_position_side = 'sell'
-                    old_balance = get_account_balance()
-                    if old_balance is None:
-                        logging.error("Failed to fetch account balance.")
-                        old_balance = 0  # Set to zero to avoid calculation errors
+                    old_balance = total_equity
                     entry_price = latest_price
                     stop_loss = entry_price * stoploss_lateral_short
                     stop_gain = entry_price * stopgain_lateral_short
@@ -575,9 +628,8 @@ while True:
                     secondary_stop_gain = stop_gain
                     current_secondary_stop_loss = secondary_stop_loss
                     current_secondary_stop_gain = secondary_stop_gain
-                    commission_rate = 0.0006  # 0.03%
-                    commission = entry_price * qty * commission_rate
-                    previous_commission = commission
+                    commission_rate = 0.00032  # 0.032%
+                    entry_commission = old_balance * commission_rate
                     potential_loss = ((stop_loss - entry_price) * qty) / old_balance * 100 if old_balance > 0 else 0
                     potential_gain = ((entry_price - stop_gain) * qty) / old_balance * 100 if old_balance > 0 else 0
                     trade_data = {
@@ -591,8 +643,8 @@ while True:
                         'stop_gain': stop_gain,
                         'potential_loss': potential_loss,
                         'potential_gain': potential_gain,
-                        'commission': commission,
-                        'old_balance': old_balance,
+                        'commission': entry_commission,
+                        'old_balance': old_balance - entry_commission,  # Subtract commission
                         'new_balance': '',
                         'timeframe': '1h',
                         'setup': 'GPTAN',
@@ -604,6 +656,11 @@ while True:
                         'entry_lateral': 1 if isLateral.iloc[-1] else 0,  # 1 se lateral, senão 0
                         'exit_lateral': ''  # Inicialmente vazio
                     }
+
+                    log_trade_entry(trade_data)
+                    logging.info(f"Entered short position at {trade_id}, price: {entry_price}")
+                    logging.info(f"Stoploss set at {stop_loss:.2f}, Take Profit set at {stop_gain:.2f}")
+                    trade_count += 1
 
             else:
                 # Trend Following Strategy in Trending Market
@@ -635,10 +692,7 @@ while True:
                     trade_id = datetime.utcnow().isoformat()
                     current_trade_id = trade_id
                     current_position_side = 'buy'
-                    old_balance = get_account_balance()
-                    if old_balance is None:
-                        logging.error("Failed to fetch account balance.")
-                        old_balance = 0  # Set to zero to avoid calculation errors
+                    old_balance = total_equity
                     entry_price = latest_price
                     stop_loss = entry_price * stoploss_normal_long
                     stop_gain = entry_price * stopgain_normal_long
@@ -646,9 +700,8 @@ while True:
                     secondary_stop_gain = stop_gain
                     current_secondary_stop_loss = secondary_stop_loss
                     current_secondary_stop_gain = secondary_stop_gain
-                    commission_rate = 0.0003  # 0.03%
-                    commission = entry_price * qty * commission_rate
-                    previous_commission = commission
+                    commission_rate = 0.00032  # 0.032%
+                    entry_commission = old_balance * commission_rate
                     potential_loss = ((entry_price - stop_loss) * qty) / old_balance * 100 if old_balance > 0 else 0
                     potential_gain = ((stop_gain - entry_price) * qty) / old_balance * 100 if old_balance > 0 else 0
                     trade_data = {
@@ -662,8 +715,8 @@ while True:
                         'stop_gain': stop_gain,
                         'potential_loss': potential_loss,
                         'potential_gain': potential_gain,
-                        'commission': commission,
-                        'old_balance': old_balance,
+                        'commission': entry_commission,
+                        'old_balance': old_balance - entry_commission,  # Subtract commission
                         'new_balance': '',
                         'timeframe': '1h',
                         'setup': 'GPTAN',
@@ -707,10 +760,7 @@ while True:
                     trade_id = datetime.utcnow().isoformat()
                     current_trade_id = trade_id
                     current_position_side = 'sell'
-                    old_balance = get_account_balance()
-                    if old_balance is None:
-                        logging.error("Failed to fetch account balance.")
-                        old_balance = 0  # Set to zero to avoid calculation errors
+                    old_balance = total_equity
                     entry_price = latest_price
                     stop_loss = entry_price * stoploss_normal_short
                     stop_gain = entry_price * stopgain_normal_short
@@ -718,9 +768,8 @@ while True:
                     secondary_stop_gain = stop_gain
                     current_secondary_stop_loss = secondary_stop_loss
                     current_secondary_stop_gain = secondary_stop_gain
-                    commission_rate = 0.0003  # 0.03%
-                    commission = entry_price * qty * commission_rate
-                    previous_commission = commission
+                    commission_rate = 0.00032  # 0.032%
+                    entry_commission = old_balance * commission_rate
                     potential_loss = ((stop_loss - entry_price) * qty) / old_balance * 100 if old_balance > 0 else 0
                     potential_gain = ((entry_price - stop_gain) * qty) / old_balance * 100 if old_balance > 0 else 0
                     trade_data = {
@@ -734,8 +783,8 @@ while True:
                         'stop_gain': stop_gain,
                         'potential_loss': potential_loss,
                         'potential_gain': potential_gain,
-                        'commission': commission,
-                        'old_balance': old_balance,
+                        'commission': entry_commission,
+                        'old_balance': old_balance - entry_commission,  # Subtract commission
                         'new_balance': '',
                         'timeframe': '1h',
                         'setup': 'GPTAN',
@@ -757,7 +806,11 @@ while True:
             side = position_info['side']
             entry_price = position_info['entry_price']
             size = position_info['size']
-            commission_rate = 0.0006  # 0.03%
+            total_equity = get_account_balance()
+            if total_equity is None:
+                logging.error("Failed to fetch account balance.")
+                total_equity = 0
+            commission_rate = 0.00032  # 0.032%
             if isLateral.iloc[-1]:
                 # Lateral market exit conditions
                 if side == 'buy':
@@ -788,13 +841,10 @@ while True:
                             continue
                         
                         sell_price = latest_price
-                        new_balance = get_account_balance()
-                        if new_balance is None:
-                            logging.error("Failed to fetch account balance.")
-                            new_balance = 0
+                        exit_commission = total_equity * commission_rate
+                        new_balance = total_equity - exit_commission
                         sell_time = datetime.utcnow().isoformat()
-                        commission = sell_price * size * commission_rate
-                        total_commission = previous_commission + commission
+                        total_commission = entry_commission + exit_commission
                         outcome = (sell_price - entry_price) * size - total_commission
                         # Ao fechar uma posição short por stop loss ou reversão:
                         exit_lateral = 1 if isLateral.iloc[-1] else 0  # Define exit_lateral
@@ -815,7 +865,8 @@ while True:
                         entry_price = None
                         current_secondary_stop_loss = None
                         current_secondary_stop_gain = None
-                        previous_commission = 0
+                        entry_commission = 0
+                        exit_commission = 0
                     elif latest_price >= take_profit:
                         # Close position at take profit
                         
@@ -840,13 +891,10 @@ while True:
                             continue
                         
                         sell_price = latest_price
-                        new_balance = get_account_balance()
-                        if new_balance is None:
-                            logging.error("Failed to fetch account balance.")
-                            new_balance = 0
+                        exit_commission = total_equity * commission_rate
+                        new_balance = total_equity - exit_commission
                         sell_time = datetime.utcnow().isoformat()
-                        commission = sell_price * size * commission_rate
-                        total_commission = previous_commission + commission
+                        total_commission = entry_commission + exit_commission
                         outcome = (sell_price - entry_price) * size - total_commission
                         # Ao fechar uma posição long por stop loss ou reversão:
                         exit_lateral = 1 if isLateral.iloc[-1] else 0  # Define exit_lateral
@@ -867,7 +915,8 @@ while True:
                         entry_price = None
                         current_secondary_stop_loss = None
                         current_secondary_stop_gain = None
-                        previous_commission = 0
+                        entry_commission = 0
+                        exit_commission = 0
                 elif side == 'sell':
                     # Short position
                     stop_loss = entry_price * stoploss_lateral_short
@@ -896,13 +945,10 @@ while True:
                             continue
                         
                         sell_price = latest_price
-                        new_balance = get_account_balance()
-                        if new_balance is None:
-                            logging.error("Failed to fetch account balance.")
-                            new_balance = 0
+                        exit_commission = total_equity * commission_rate
+                        new_balance = total_equity - exit_commission
                         sell_time = datetime.utcnow().isoformat()
-                        commission = sell_price * size * commission_rate
-                        total_commission = previous_commission + commission
+                        total_commission = entry_commission + exit_commission
                         outcome = (entry_price - sell_price) * size - total_commission
                         # Ao fechar uma posição short por stop loss ou reversão:
                         exit_lateral = 1 if isLateral.iloc[-1] else 0  # Define exit_lateral
@@ -924,7 +970,8 @@ while True:
                         entry_price = None
                         current_secondary_stop_loss = None
                         current_secondary_stop_gain = None
-                        previous_commission = 0
+                        entry_commission = 0
+                        exit_commission = 0
                     elif latest_price <= take_profit:
                         # Close position at take profit
                         
@@ -949,13 +996,10 @@ while True:
                             continue
                         
                         sell_price = latest_price
-                        new_balance = get_account_balance()
-                        if new_balance is None:
-                            logging.error("Failed to fetch account balance.")
-                            new_balance = 0
+                        exit_commission = total_equity * commission_rate
+                        new_balance = total_equity - exit_commission
                         sell_time = datetime.utcnow().isoformat()
-                        commission = sell_price * size * commission_rate
-                        total_commission = previous_commission + commission
+                        total_commission = entry_commission + exit_commission
                         outcome = (entry_price - sell_price) * size - total_commission
                         # Ao fechar uma posição short por stop loss ou reversão:
                         exit_lateral = 1 if isLateral.iloc[-1] else 0  # Define exit_lateral
@@ -977,7 +1021,8 @@ while True:
                         entry_price = None
                         current_secondary_stop_loss = None
                         current_secondary_stop_gain = None
-                        previous_commission = 0
+                        entry_commission = 0
+                        exit_commission = 0
             else:
                 # Trending market exit conditions
                 if side == 'buy':
@@ -1008,13 +1053,10 @@ while True:
                             continue
                         
                         sell_price = latest_price
-                        new_balance = get_account_balance()
-                        if new_balance is None:
-                            logging.error("Failed to fetch account balance.")
-                            new_balance = 0
+                        exit_commission = total_equity * commission_rate
+                        new_balance = total_equity - exit_commission
                         sell_time = datetime.utcnow().isoformat()
-                        commission = sell_price * size * commission_rate
-                        total_commission = previous_commission + commission
+                        total_commission = entry_commission + exit_commission
                         outcome = (sell_price - entry_price) * size - total_commission
                         # Ao fechar uma posição long por stop loss ou reversão:
                         exit_lateral = 1 if isLateral.iloc[-1] else 0  # Define exit_lateral
@@ -1036,7 +1078,8 @@ while True:
                         entry_price = None
                         current_secondary_stop_loss = None
                         current_secondary_stop_gain = None
-                        previous_commission = 0
+                        entry_commission = 0
+                        exit_commission = 0
                     elif latest_price >= take_profit:
                         # Close position at take profit
                         
@@ -1061,13 +1104,10 @@ while True:
                             continue
                         
                         sell_price = latest_price
-                        new_balance = get_account_balance()
-                        if new_balance is None:
-                            logging.error("Failed to fetch account balance.")
-                            new_balance = 0
+                        exit_commission = total_equity * commission_rate
+                        new_balance = total_equity - exit_commission
                         sell_time = datetime.utcnow().isoformat()
-                        commission = sell_price * size * commission_rate
-                        total_commission = previous_commission + commission
+                        total_commission = entry_commission + exit_commission
                         outcome = (sell_price - entry_price) * size - total_commission
                         # Ao fechar uma posição long por stop loss ou reversão:
                         exit_lateral = 1 if isLateral.iloc[-1] else 0  # Define exit_lateral
@@ -1089,7 +1129,8 @@ while True:
                         entry_price = None
                         current_secondary_stop_loss = None
                         current_secondary_stop_gain = None
-                        previous_commission = 0
+                        entry_commission = 0
+                        exit_commission = 0
                 elif side == 'sell':
                     # Short position
                     stop_loss = entry_price * stoploss_normal_short
@@ -1116,15 +1157,11 @@ while True:
                             logging.error(f"Exception closing short position: {e}")
                             time.sleep(5)
                             continue
-                        
                         sell_price = latest_price
-                        new_balance = get_account_balance()
-                        if new_balance is None:
-                            logging.error("Failed to fetch account balance.")
-                            new_balance = 0
+                        exit_commission = total_equity * commission_rate
+                        new_balance = total_equity - exit_commission
                         sell_time = datetime.utcnow().isoformat()
-                        commission = sell_price * size * commission_rate
-                        total_commission = previous_commission + commission
+                        total_commission = entry_commission + exit_commission
                         outcome = (entry_price - sell_price) * size - total_commission
                         # Ao fechar uma posição short por stop loss ou reversão:
                         exit_lateral = 1 if isLateral.iloc[-1] else 0  # Define exit_lateral
@@ -1145,7 +1182,8 @@ while True:
                         entry_price = None
                         current_secondary_stop_loss = None
                         current_secondary_stop_gain = None
-                        previous_commission = 0
+                        entry_commission = 0
+                        exit_commission = 0
                     elif latest_price <= take_profit:
                         # Close position at take profit
                         
@@ -1168,15 +1206,11 @@ while True:
                             logging.error(f"Exception closing short position: {e}")
                             time.sleep(5)
                             continue
-                        
                         sell_price = latest_price
-                        new_balance = get_account_balance()
-                        if new_balance is None:
-                            logging.error("Failed to fetch account balance.")
-                            new_balance = 0
+                        exit_commission = total_equity * commission_rate
+                        new_balance = total_equity - exit_commission
                         sell_time = datetime.utcnow().isoformat()
-                        commission = sell_price * size * commission_rate
-                        total_commission = previous_commission + commission
+                        total_commission = entry_commission + exit_commission
                         outcome = (entry_price - sell_price) * size - total_commission
                         # Ao fechar uma posição short por stop loss ou reversão:
                         exit_lateral = 1 if isLateral.iloc[-1] else 0  # Define exit_lateral
@@ -1197,7 +1231,8 @@ while True:
                         entry_price = None
                         current_secondary_stop_loss = None
                         current_secondary_stop_gain = None
-                        previous_commission = 0
+                        entry_commission = 0
+                        exit_commission = 0
 
         # Wait for 1 second before next price check
         time.sleep(1)
