@@ -82,8 +82,8 @@ def adicionar_linha_inicial(df):
     df_linha_inicial = pd.DataFrame([linha_inicial])
     # Converter 'time' para datetime
     df_linha_inicial['timestamp'] = pd.to_datetime(df_linha_inicial['time'], unit='s')
-    # Selecionar e ordenar colunas para manter a consistência
-    df_linha_inicial = df_linha_inicial[['timestamp', 'open', 'high', 'low', 'close',
+    # Selecionar e ordenar colunas para manter a consistência, mantendo 'time'
+    df_linha_inicial = df_linha_inicial[['time', 'timestamp', 'open', 'high', 'low', 'close',
                                          'Upper Band', 'Lower Band', 'Middle Band',
                                          'EMA Curta (21)', 'EMA Longa (55)', 'ADX',
                                          'ADX Plus', 'ADX Minus', 'RSI',
@@ -126,7 +126,10 @@ def get_historical_klines(symbol, interval, limit):
         df['close'] = df['close'].astype(float)
         df['volume'] = df['volume'].astype(float)
         df['turnover'] = df['turnover'].astype(float)
-
+        
+        # **Adicionar coluna 'time' a partir de 'timestamp'**
+        df['time'] = df['timestamp'].apply(lambda x: int(x.timestamp()))
+        
         # Adicionar a linha inicial com os indicadores calculados
         df = adicionar_linha_inicial(df)
 
@@ -854,6 +857,7 @@ while True:
                         'entry_lateral': 1 if isLateral.iloc[-1] else 0,  # 1 se lateral, senão 0
                         'exit_lateral': ''  # Inicialmente vazio
                     }
+
                     log_trade_entry(trade_data)
                     logging.info(f"Entrou em posição curta em {trade_id}, preço: {entry_price}")
                     logging.info(f"Stoploss definido em {stop_loss:.2f}, Take Profit definido em {stop_gain:.2f}")
