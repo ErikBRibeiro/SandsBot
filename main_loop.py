@@ -56,6 +56,7 @@ def unix_to_datetime(unix_time):
     return datetime.utcfromtimestamp(unix_time)
 
 # **Modificação: Adicionar a linha inicial com indicadores calculados**
+# Função para adicionar a linha inicial com os indicadores calculados
 def adicionar_linha_inicial(df):
     # Linha fornecida com indicadores já calculados
     linha_inicial = {
@@ -88,6 +89,7 @@ def adicionar_linha_inicial(df):
                                          'EMA Curta (21)', 'EMA Longa (55)', 'ADX',
                                          'ADX Plus', 'ADX Minus', 'RSI',
                                          'MACD Line', 'Signal Line', 'MACD Histogram', 'BandWidth']]
+    
     # Verificar se a linha inicial já está presente para evitar duplicatas
     if not ((df['time'] == linha_inicial['time']).any()):
         df = pd.concat([df_linha_inicial, df], ignore_index=True)
@@ -95,7 +97,11 @@ def adicionar_linha_inicial(df):
         logging.info("Linha inicial com indicadores calculados adicionada ao DataFrame de candles.")
     else:
         logging.info("Linha inicial já está presente no DataFrame de candles.")
+    
+    # **Novo log para verificar colunas**
+    logging.info(f"Colunas do DataFrame após adicionar a linha inicial: {df.columns}")
     return df
+
 
 # Função para buscar dados históricos de klines
 def get_historical_klines(symbol, interval, limit):
