@@ -511,7 +511,7 @@ while True:
                 logging.info(f'EMA Curta (21): {df["EMA Curta (21)"].iloc[-1]}')
                 logging.info(f'EMA Longa (55): {df["EMA Longa (55)"].iloc[-1]}')
                 pd.set_option("display.max_columns", None)
-                logging.info(f'DF COMPLETO:\n{df.tail()}')
+                logging.info(f'DF COMPLETO:\n{df}')
             last_log_time = current_time
 
         # Buscar o preço mais recente a cada segundo
