@@ -79,26 +79,20 @@ def adicionar_linha_inicial(df):
         'MACD Histogram': -72.62302328823012,
         'BandWidth': 0.011627436894071428
     }
+    
     # Converter para DataFrame
     df_linha_inicial = pd.DataFrame([linha_inicial])
     # Converter 'time' para datetime
     df_linha_inicial['timestamp'] = pd.to_datetime(df_linha_inicial['time'], unit='s')
-    # Selecionar e ordenar colunas para manter a consistência, mantendo 'time'
-    df_linha_inicial = df_linha_inicial[['time', 'timestamp', 'open', 'high', 'low', 'close',
-                                         'Upper Band', 'Lower Band', 'Middle Band',
-                                         'EMA Curta (21)', 'EMA Longa (55)', 'ADX',
-                                         'ADX Plus', 'ADX Minus', 'RSI',
-                                         'MACD Line', 'Signal Line', 'MACD Histogram', 'BandWidth']]
     
-    # Verificar se a linha inicial já está presente para evitar duplicatas
-    if not ((df['time'] == linha_inicial['time']).any()):
+    # Adicionar as colunas dos indicadores ao DataFrame se não existirem
+    if not all(col in df.columns for col in df_linha_inicial.columns):
         df = pd.concat([df_linha_inicial, df], ignore_index=True)
-        df = df.sort_values('timestamp').reset_index(drop=True)
         logging.info("Linha inicial com indicadores calculados adicionada ao DataFrame de candles.")
     else:
         logging.info("Linha inicial já está presente no DataFrame de candles.")
-    
-    # **Novo log para verificar colunas**
+
+    # Verificar colunas após a adição da linha inicial
     logging.info(f"Colunas do DataFrame após adicionar a linha inicial: {df.columns}")
     return df
 
@@ -123,6 +117,7 @@ def get_historical_klines(symbol, interval, limit):
         df = pd.DataFrame(kline_data, columns=[
             'timestamp', 'open', 'high', 'low', 'close', 'volume', 'turnover'
         ])
+        
         # Garantir que 'timestamp' seja numérico antes de converter para datetime
         df['timestamp'] = pd.to_numeric(df['timestamp'], errors='coerce')
         df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
@@ -133,7 +128,7 @@ def get_historical_klines(symbol, interval, limit):
         df['volume'] = df['volume'].astype(float)
         df['turnover'] = df['turnover'].astype(float)
         
-        # **Adicionar coluna 'time' a partir de 'timestamp'**
+        # Adicionar a coluna 'time'
         df['time'] = df['timestamp'].apply(lambda x: int(x.timestamp()))
         
         # Adicionar a linha inicial com os indicadores calculados
