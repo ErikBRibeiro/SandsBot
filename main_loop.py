@@ -47,15 +47,61 @@ if not os.path.isfile(trade_history_file):
     columns = ['trade_id', 'timestamp', 'symbol', 'buy_price', 'sell_price', 'quantity',
                'stop_loss', 'stop_gain', 'potential_loss', 'potential_gain', 'timeframe',
                'setup', 'outcome', 'commission', 'old_balance', 'new_balance',
-               'secondary_stop_loss', 'secondary_stop_gain', 'sell_time']
+               'secondary_stop_loss', 'secondary_stop_gain', 'sell_time', 'type', 'entry_lateral', 'exit_lateral']
     df_trade_history = pd.DataFrame(columns=columns)
     df_trade_history.to_csv(trade_history_file, index=False)
 
-# Function to fetch historical kline data
+# Função para converter timestamp Unix para datetime
+def unix_to_datetime(unix_time):
+    return datetime.utcfromtimestamp(unix_time)
+
+# **Modificação: Adicionar a linha inicial com indicadores calculados**
+def adicionar_linha_inicial(df):
+    # Linha fornecida com indicadores já calculados
+    linha_inicial = {
+        'time': 1726650000,
+        'open': 60172.4,
+        'high': 60172.4,
+        'low': 59630,
+        'close': 59630,
+        'Upper Band': 60580.68472207522,
+        'Lower Band': 59880.35813506749,
+        'Middle Band': 60230.52142857135,
+        'EMA Curta (21)': 60162.58945705477,
+        'EMA Longa (55)': 59553.543958859795,
+        'ADX': 21.402484453635605,
+        'ADX Plus': 21.174773194781164,
+        'ADX Minus': 23.277589391454462,
+        'RSI': 49.67691640584306,
+        'MACD Line': 345.8235424582599,
+        'Signal Line': 418.44656574649,
+        'MACD Histogram': -72.62302328823012,
+        'BandWidth': 0.011627436894071428
+    }
+    # Converter para DataFrame
+    df_linha_inicial = pd.DataFrame([linha_inicial])
+    # Converter 'time' para datetime
+    df_linha_inicial['timestamp'] = pd.to_datetime(df_linha_inicial['time'], unit='s')
+    # Selecionar e ordenar colunas para manter a consistência
+    df_linha_inicial = df_linha_inicial[['timestamp', 'open', 'high', 'low', 'close',
+                                         'Upper Band', 'Lower Band', 'Middle Band',
+                                         'EMA Curta (21)', 'EMA Longa (55)', 'ADX',
+                                         'ADX Plus', 'ADX Minus', 'RSI',
+                                         'MACD Line', 'Signal Line', 'MACD Histogram', 'BandWidth']]
+    # Verificar se a linha inicial já está presente para evitar duplicatas
+    if not ((df['time'] == linha_inicial['time']).any()):
+        df = pd.concat([df_linha_inicial, df], ignore_index=True)
+        df = df.sort_values('timestamp').reset_index(drop=True)
+        logging.info("Linha inicial com indicadores calculados adicionada ao DataFrame de candles.")
+    else:
+        logging.info("Linha inicial já está presente no DataFrame de candles.")
+    return df
+
+# Função para buscar dados históricos de klines
 def get_historical_klines(symbol, interval, limit):
     try:
         now = datetime.utcnow()
-        from_time = now - timedelta(minutes=int(interval) * limit)
+        from_time = now - timedelta(hours=limit)  # Intervalo de 1 hora
         from_time_ms = int(from_time.timestamp() * 1000)
         kline = session.get_kline(
             category='linear',
@@ -65,13 +111,13 @@ def get_historical_klines(symbol, interval, limit):
             limit=limit
         )
         if kline['retMsg'] != 'OK':
-            logging.error(f"Error fetching kline data: {kline['retMsg']}")
+            logging.error(f"Erro ao buscar dados de kline: {kline['retMsg']}")
             return None
         kline_data = kline['result']['list']
         df = pd.DataFrame(kline_data, columns=[
             'timestamp', 'open', 'high', 'low', 'close', 'volume', 'turnover'
         ])
-        # Ensure 'timestamp' is numeric before converting to datetime
+        # Garantir que 'timestamp' seja numérico antes de converter para datetime
         df['timestamp'] = pd.to_numeric(df['timestamp'], errors='coerce')
         df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
         df['open'] = df['open'].astype(float)
@@ -80,128 +126,100 @@ def get_historical_klines(symbol, interval, limit):
         df['close'] = df['close'].astype(float)
         df['volume'] = df['volume'].astype(float)
         df['turnover'] = df['turnover'].astype(float)
+
+        # Adicionar a linha inicial com os indicadores calculados
+        df = adicionar_linha_inicial(df)
+
         return df
     except Exception as e:
-        logging.error(f"Exception in get_historical_klines: {e}")
+        logging.error(f"Exception em get_historical_klines: {e}")
         return None
 
-# Function to calculate indicators
+# Função para calcular as EMAs a partir de valores iniciais
+def calcular_ema(series, period, valor_inicial):
+    alpha = 2 / (period + 1)
+    ema = [valor_inicial]
+    for price in series.iloc[1:]:
+        new_ema = (price * alpha) + (ema[-1] * (1 - alpha))
+        ema.append(new_ema)
+    return pd.Series(ema, index=series.index)
+
+# Função para calcular indicadores
 def calculate_indicators(df):
     try:
         close_price = df['close']
         high_price = df['high']
         low_price = df['low']
 
-        # Parameters
-        emaShortLength = 11
-        emaLongLength = 55
-        rsiLength = 22
-        macdShort = 15
-        macdLong = 34
-        macdSignal = 11
-        adxLength = 16
-        adxSmoothing = 13
+        # Parâmetros
+        emaShortLength = 21  # EMA Curta (21)
+        emaLongLength = 55   # EMA Longa (55)
+        rsiLength = 14
+        macdShort = 12
+        macdLong = 26
+        macdSignal = 9
+        adxLength = 14
+        adxSmoothing = 14
         adxThreshold = 12
-        bbLength = 14
-        bbMultiplier = 1.7
+        bbLength = 20
+        bbMultiplier = 2
         lateralThreshold = 0.005
 
-        # Calculating indicators
+        # Calculando EMAs a partir dos valores iniciais fornecidos
+        valor_inicial_ema_curta = df['EMA Curta (21)'].iloc[0]
+        valor_inicial_ema_longa = df['EMA Longa (55)'].iloc[0]
 
-        # EMA Short and Long
-        emaShort = talib.EMA(close_price, emaShortLength)
-        emaLong = talib.EMA(close_price, emaLongLength)
-        print(f'Ema Short: {emaShort}')
-        print(f'Ema Long: {emaLong}')
+        emaShort = calcular_ema(close_price, emaShortLength, valor_inicial_ema_curta)
+        emaLong = calcular_ema(close_price, emaLongLength, valor_inicial_ema_longa)
+
         # RSI
         rsi = talib.RSI(close_price, timeperiod=rsiLength)
 
-        # MACD calculated manually
-        def macd_func(series, fast_period, slow_period, signal_period):
-            ema_fast = talib.EMA(series, fast_period)
-            ema_slow = talib.EMA(series, slow_period)
-            macd_line = ema_fast - ema_slow
-            signal_line = talib.EMA(macd_line, signal_period)
-            macd_hist = macd_line - signal_line
-            return macd_line, signal_line, macd_hist
+        # MACD
+        macdLine, signalLine, macdHist = talib.MACD(close_price, fastperiod=macdShort, slowperiod=macdLong, signalperiod=macdSignal)
 
-        macdLine, signalLine, macdHist = macd_func(close_price, macdShort, macdLong, macdSignal)
-
-        # Bollinger Bands
+        # Bandas de Bollinger
         upperBand, middleBand, lowerBand = talib.BBANDS(
-            close_price, timeperiod=bbLength, nbdevup=bbMultiplier, nbdevdn=bbMultiplier
+            close_price, timeperiod=bbLength, nbdevup=bbMultiplier, nbdevdn=bbMultiplier, matype=0
         )
 
-        # ADX calculated manually
-        def get_adx_manual(high, low, close, di_lookback, adx_smoothing):
-            tr = []
-            previous_close = close.iloc[0]
-            plus_dm = []
-            minus_dm = []
+        # ADX
+        adx = talib.ADX(high_price, low_price, close_price, timeperiod=adxLength)
+        plus_di = talib.PLUS_DI(high_price, low_price, close_price, timeperiod=adxLength)
+        minus_di = talib.MINUS_DI(high_price, low_price, close_price, timeperiod=adxLength)
 
-            for i in range(1, len(close)):
-                current_plus_dm = high.iloc[i] - high.iloc[i-1]
-                current_minus_dm = low.iloc[i-1] - low.iloc[i]
-                plus_dm.append(max(current_plus_dm, 0) if current_plus_dm > current_minus_dm else 0)
-                minus_dm.append(max(current_minus_dm, 0) if current_minus_dm > current_plus_dm else 0)
-
-                tr1 = high.iloc[i] - low.iloc[i]
-                tr2 = abs(high.iloc[i] - previous_close)
-                tr3 = abs(low.iloc[i] - previous_close)
-                true_range = max(tr1, tr2, tr3)
-                tr.append(true_range)
-
-                previous_close = close.iloc[i]
-
-            tr.insert(0, np.nan)
-            plus_dm.insert(0, np.nan)
-            minus_dm.insert(0, np.nan)
-
-            tr = pd.Series(tr)
-            plus_dm = pd.Series(plus_dm)
-            minus_dm = pd.Series(minus_dm)
-
-            atr = tr.rolling(window=di_lookback).mean()
-
-            plus_di = 100 * (plus_dm.ewm(alpha=1/di_lookback, adjust=False).mean() / atr)
-            minus_di = 100 * (minus_dm.ewm(alpha=1/di_lookback, adjust=False).mean() / atr)
-
-            dx = (abs(plus_di - minus_di) / (plus_di + minus_di)) * 100
-            adx = dx.ewm(alpha=1/adx_smoothing, adjust=False).mean()
-
-            return plus_di, minus_di, adx
-
-        plus_di, minus_di, adx = get_adx_manual(high_price, low_price, close_price, adxLength, adxSmoothing)
-        adx = adx.fillna(0).astype(int)
-
-        # Bandwidth and isLateral
+        # Bandwidth e isLateral
         bandWidth = (upperBand - lowerBand) / middleBand
         isLateral = bandWidth < lateralThreshold
 
-        # Assign to dataframe
-        df['emaShort'] = emaShort
-        df['emaLong'] = emaLong
-        df['rsi'] = rsi
-        df['macdHist'] = macdHist
-        df['adx'] = adx
-        df['upperBand'] = upperBand
-        df['middleBand'] = middleBand
-        df['lowerBand'] = lowerBand
-        df['bandWidth'] = bandWidth
+        # Atribuir aos DataFrame
+        df['EMA Curta (21)'] = emaShort
+        df['EMA Longa (55)'] = emaLong
+        df['RSI'] = rsi
+        df['MACD Line'] = macdLine
+        df['Signal Line'] = signalLine
+        df['MACD Histogram'] = macdHist
+        df['Upper Band'] = upperBand
+        df['Middle Band'] = middleBand
+        df['Lower Band'] = lowerBand
+        df['BandWidth'] = bandWidth
         df['isLateral'] = isLateral
+        df['ADX'] = adx
+        df['ADX Plus'] = plus_di
+        df['ADX Minus'] = minus_di
 
         return df
     except Exception as e:
-        logging.error(f"Exception in calculate_indicators: {e}")
+        logging.error(f"Exception em calculate_indicators: {e}")
         return None
 
-# Helper functions for crossover logic
+# Funções auxiliares para lógica de crossover
 def crossover(series1, series2):
     try:
         cross = (series1 > series2) & (series1.shift(1) <= series2.shift(1))
         return cross
     except Exception as e:
-        logging.error(f"Exception in crossover function: {e}")
+        logging.error(f"Exception na função crossover: {e}")
         return pd.Series([False])
 
 def crossunder(series1, series2):
@@ -209,7 +227,7 @@ def crossunder(series1, series2):
         cross = (series1 < series2) & (series1.shift(1) >= series2.shift(1))
         return cross
     except Exception as e:
-        logging.error(f"Exception in crossunder function: {e}")
+        logging.error(f"Exception na função crossunder: {e}")
         return pd.Series([False])
 
 # Função para obter a posição atual
@@ -249,9 +267,7 @@ def get_current_position(retries=3, backoff_factor=5):
     logging.error("Falha ao obter posição atual após várias tentativas.")
     return False, None
 
-
-
-# Function to fetch the latest price
+# Função para buscar o preço mais recente
 def get_latest_price():
     try:
         ticker = session.get_tickers(
@@ -259,30 +275,30 @@ def get_latest_price():
             symbol=symbol
         )
         if ticker['retMsg'] != 'OK':
-            logging.error(f"Error fetching latest price: {ticker['retMsg']}")
+            logging.error(f"Erro ao buscar preço mais recente: {ticker['retMsg']}")
             return None
         price = float(ticker['result']['list'][0]['lastPrice'])
         return price
     except Exception as e:
-        logging.error(f"Exception in get_latest_price: {e}")
+        logging.error(f"Exception em get_latest_price: {e}")
         return None
 
-# Function to get account balance
+# Função para obter o saldo da conta
 def get_account_balance():
     try:
         balance_info = session.get_wallet_balance(accountType='UNIFIED')
         if balance_info['retMsg'] != 'OK':
-            logging.error(f"Error fetching account balance: {balance_info['retMsg']}")
+            logging.error(f"Erro ao buscar saldo da conta: {balance_info['retMsg']}")
             return None
         
         # Acessando o totalEquity corretamente na lista dentro de result
         total_equity = float(balance_info['result']['list'][0]['totalEquity'])
         return total_equity
     except Exception as e:
-        logging.error(f"Exception in get_account_balance: {e}")
+        logging.error(f"Exception em get_account_balance: {e}")
         return None
 
-# Functions to log trade entries and exits
+# Funções para logar entradas e saídas de trades
 def log_trade_entry(trade_data):
     try:
         if os.path.isfile(trade_history_file):
@@ -296,12 +312,12 @@ def log_trade_entry(trade_data):
         df_trade_history = df_trade_history.append(trade_data, ignore_index=True)
         df_trade_history.to_csv(trade_history_file, index=False)
     except Exception as e:
-        logging.error(f"Exception in log_trade_entry: {e}")
+        logging.error(f"Exception em log_trade_entry: {e}")
 
 def log_trade_update(trade_id, symbol, update_data):
     try:
         if not os.path.isfile(trade_history_file):
-            logging.error("Trade history file does not exist.")
+            logging.error("Arquivo de histórico de trades não existe.")
             return
         df_trade_history = pd.read_csv(trade_history_file)
         mask = (df_trade_history['trade_id'] == trade_id) & (df_trade_history['symbol'] == symbol)
@@ -310,25 +326,26 @@ def log_trade_update(trade_id, symbol, update_data):
                 df_trade_history.loc[mask, key] = value
             df_trade_history.to_csv(trade_history_file, index=False)
         else:
-            logging.error("Trade not found in trade history for update.")
+            logging.error("Trade não encontrado no histórico para atualização.")
     except Exception as e:
-        logging.error(f"Exception in log_trade_update: {e}")
+        logging.error(f"Exception em log_trade_update: {e}")
 
 def log_trade_exit(trade_id, symbol, update_data, exit_lateral):
     try:
         if not os.path.isfile(trade_history_file):
-            logging.error("Trade history file does not exist.")
+            logging.error("Arquivo de histórico de trades não existe.")
             return
         df_trade_history = pd.read_csv(trade_history_file)
         mask = (df_trade_history['trade_id'] == trade_id) & (df_trade_history['symbol'] == symbol)
         if mask.any():
             update_data['exit_lateral'] = exit_lateral  # Adiciona 'exit_lateral'
-            df_trade_history.loc[mask, update_data.keys()] = update_data.values()
+            for key, value in update_data.items():
+                df_trade_history.loc[mask, key] = value
             df_trade_history.to_csv(trade_history_file, index=False)
         else:
-            logging.error("Trade not found in trade history for update.")
+            logging.error("Trade não encontrado no histórico para saída.")
     except Exception as e:
-        logging.error(f"Exception in log_trade_exit: {e}")
+        logging.error(f"Exception em log_trade_exit: {e}")
 
 def calculate_qty(total_equity, latest_price, leverage=1):
     try:
@@ -340,7 +357,7 @@ def calculate_qty(total_equity, latest_price, leverage=1):
         
         return qty
     except Exception as e:
-        logging.error(f"Exception in calculate_qty: {e}")
+        logging.error(f"Exception em calculate_qty: {e}")
         return None
     
 out_of_trade_logged = False
@@ -356,7 +373,7 @@ def log_exit(side, exit_price, size, outcome):
     logging.info(f"Saindo da posição {side} com tamanho {size} BTC a {exit_price}.")
     logging.info(f"Resultado da posição: {outcome}")
 
-# Trading parameters
+# Parâmetros de trading
 stopgain_lateral_long = 1.11
 stoploss_lateral_long = 0.973
 stopgain_lateral_short = 0.973
@@ -366,14 +383,14 @@ stoploss_normal_long = 0.92
 stopgain_normal_short = 0.77
 stoploss_normal_short = 1.12
 
-trade_count = 0  # Counter for the number of trades
+trade_count = 0  # Contador de trades
 
-# Initialize variables
-last_candle_time = None  # To keep track of when to update indicators
-last_log_time = None     # To keep track of logging every 10 minutes
-previous_isLateral = None  # To detect transition into lateral market
+# Inicializar variáveis
+last_candle_time = None  # Para rastrear quando atualizar indicadores
+last_log_time = None     # Para rastrear logs a cada 10 minutos
+previous_isLateral = None  # Para detectar transição para mercado lateral
 
-# Variables to track current trade
+# Variáveis para rastrear o trade atual
 current_trade_id = None
 current_position_side = None
 entry_price = None
@@ -382,57 +399,57 @@ current_secondary_stop_gain = None
 entry_commission = 0
 exit_commission = 0
 
-# Main trading loop
+# Função principal de trading
 while True:
     try:
         current_time = datetime.utcnow()
-        # Check if it's time to update the indicators (every hour)
+        # Verificar se é hora de atualizar os indicadores (a cada hora)
         if last_candle_time is None or (current_time - last_candle_time).seconds >= 3600:
-            # Fetch the latest 1-hour kline data
-            df = get_historical_klines(symbol, interval=60, limit=42000)
+            # Buscar os últimos 1000 candles de 1 hora
+            df = get_historical_klines(symbol, interval=60, limit=1000)
             if df is None or df.empty:
-                logging.error("Failed to fetch historical klines or received empty data.")
+                logging.error("Falha ao buscar candles históricos ou dados recebidos vazios.")
                 time.sleep(10)
                 continue
             df = df.sort_values('timestamp')
 
-            # Calculate indicators
+            # Calcular indicadores
             df = calculate_indicators(df)
             if df is None:
-                logging.error("Failed to calculate indicators.")
+                logging.error("Falha ao calcular indicadores.")
                 time.sleep(10)
                 continue
 
-            # Get the latest data point
+            # Obter a última linha de dados
             last_row = df.iloc[-1]
             adjusted_timestamp = last_row['timestamp']
-            emaShort = df['emaShort']
-            emaLong = df['emaLong']
-            rsi = df['rsi']
-            macdHist = df['macdHist']
-            adx = df['adx']
+            emaShort = df['EMA Curta (21)']
+            emaLong = df['EMA Longa (55)']
+            rsi = df['RSI']
+            macdHist = df['MACD Histogram']
+            adx = df['ADX']
             isLateral = df['isLateral']
-            upperBand = df['upperBand']
-            lowerBand = df['lowerBand']
-            bandWidth = df['bandWidth']
+            upperBand = df['Upper Band']
+            lowerBand = df['Lower Band']
+            bandWidth = df['BandWidth']
 
-            # Determine trending market
-            trendingMarket = adx.iloc[-1] >= 12  # adxThreshold
+            # Determinar mercado em tendência
+            trendingMarket = adx.iloc[-1] >= adxThreshold  # adxThreshold
 
-            # Detect transition into lateral market
+            # Detectar transição para mercado lateral
             if previous_isLateral is not None and isLateral.iloc[-1] != previous_isLateral:
                 if isLateral.iloc[-1]:
-                    # Entered lateral market
-                    logging.info("Entered lateral market. Stopgain and Stoploss levels adjusted.")
-                    logging.info(f"Stopgain and Stoploss levels for lateral market - Long: Stopgain {stopgain_lateral_long}, Stoploss {stoploss_lateral_long}; Short: Stopgain {stopgain_lateral_short}, Stoploss {stoploss_lateral_short}")
+                    # Entrou no mercado lateral
+                    logging.info("Entrou no mercado lateral. Níveis de Stopgain e Stoploss ajustados.")
+                    logging.info(f"Stopgain e Stoploss para mercado lateral - Long: Stopgain {stopgain_lateral_long}, Stoploss {stoploss_lateral_long}; Short: Stopgain {stopgain_lateral_short}, Stoploss {stoploss_lateral_short}")
                 else:
-                    # Exited lateral market
-                    logging.info("Exited lateral market. Stopgain and Stoploss levels adjusted.")
-                    logging.info(f"Stopgain and Stoploss levels for trending market - Long: Stopgain {stopgain_normal_long}, Stoploss {stoploss_normal_long}; Short: Stopgain {stopgain_normal_short}, Stoploss {stoploss_normal_short}")
-                # Update secondary stop_loss and stop_gain if there is an open position
+                    # Saiu do mercado lateral
+                    logging.info("Saiu do mercado lateral. Níveis de Stopgain e Stoploss ajustados.")
+                    logging.info(f"Stopgain e Stoploss para mercado em tendência - Long: Stopgain {stopgain_normal_long}, Stoploss {stoploss_normal_long}; Short: Stopgain {stopgain_normal_short}, Stoploss {stoploss_normal_short}")
+                # Atualizar secondary stop_loss e stop_gain se houver uma posição aberta
                 if current_trade_id is not None:
                     if isLateral.iloc[-1]:
-                        # Now in lateral market
+                        # Agora no mercado lateral
                         if current_position_side == 'buy':
                             current_secondary_stop_loss = entry_price * stoploss_lateral_long
                             current_secondary_stop_gain = entry_price * stopgain_lateral_long
@@ -440,14 +457,14 @@ while True:
                             current_secondary_stop_loss = entry_price * stoploss_lateral_short
                             current_secondary_stop_gain = entry_price * stopgain_lateral_short
                     else:
-                        # Now in trending market
+                        # Agora no mercado em tendência
                         if current_position_side == 'buy':
                             current_secondary_stop_loss = entry_price * stoploss_normal_long
                             current_secondary_stop_gain = entry_price * stopgain_normal_long
                         elif current_position_side == 'sell':
                             current_secondary_stop_loss = entry_price * stoploss_normal_short
                             current_secondary_stop_gain = entry_price * stopgain_normal_short
-                    # Update the CSV
+                    # Atualizar o CSV
                     update_data = {
                         'secondary_stop_loss': current_secondary_stop_loss,
                         'secondary_stop_gain': current_secondary_stop_gain
@@ -456,21 +473,22 @@ while True:
 
             previous_isLateral = isLateral.iloc[-1]
 
-            # Update last_candle_time
+            # Atualizar last_candle_time
             last_candle_time = current_time
 
-            logging.info(f"Indicators updated at {current_time}")
+            logging.info(f"Indicadores atualizados em {current_time}")
 
-        # Log bot status every 10 minutes
+        # Logar status do bot a cada 10 minutos
         if last_log_time is None or (current_time - last_log_time).total_seconds() >= 600:
             current_position, position_info = get_current_position()
             if current_position is None:
-                logging.info("Bot status: Unable to fetch current position.")
+                logging.info("Status do bot: Incapaz de buscar posição atual.")
             elif not current_position:
-                logging.info("Bot status: Out of trade.")
+                logging.info("Status do bot: Fora de trade.")
             else:
                 side = position_info['side']
                 entry_price = position_info['entry_price']
+                size = position_info['size']
                 if isLateral.iloc[-1]:
                     if side == 'buy':
                         stop_loss = entry_price * stoploss_lateral_long
@@ -485,52 +503,61 @@ while True:
                     else:
                         stop_loss = entry_price * stoploss_normal_short
                         take_profit = entry_price * stopgain_normal_short
-                logging.info(f"Bot status: In a {side.lower()} position.")
-                logging.info(f"Current Stoploss: {stop_loss:.2f}, Take Profit: {take_profit:.2f}")
-                logging.info(f'Ema Short: {emaShort}')
-                logging.info(f'Ema Long: {emaLong}')
+                logging.info(f"Status do bot: Em uma posição {side.lower()}.")
+                logging.info(f"Stoploss Atual: {stop_loss:.2f}, Take Profit: {take_profit:.2f}")
+                logging.info(f'EMA Curta (21): {df["EMA Curta (21)"].iloc[-1]}')
+                logging.info(f'EMA Longa (55): {df["EMA Longa (55)"].iloc[-1]}')
                 pd.set_option("display.max_columns", None)
-                logging.info(f'DF COM TUDO{df}')
+                logging.info(f'DF COMPLETO:\n{df.tail()}')
             last_log_time = current_time
 
-        # Fetch the latest price every second
+        # Buscar o preço mais recente a cada segundo
         latest_price = get_latest_price()
         if latest_price is None:
-            logging.error("Failed to fetch latest price.")
+            logging.error("Falha ao buscar preço mais recente.")
             time.sleep(5)
             continue
 
-        # Implement real-time entry and exit logic based on latest_price and indicators
-        # Long and Short conditions
+        # Implementar lógica de entrada e saída em tempo real com base no latest_price e indicadores
+        # Condições para Long e Short
         longCondition = (
-            crossover(emaShort, emaLong).iloc[-1]
-            and (rsi.iloc[-1] < 60)
-            and (macdHist.iloc[-1] > 0.5)
+            crossover(df['EMA Curta (21)'], df['EMA Longa (55)']).iloc[-1]
+            and (df['RSI'].iloc[-1] < 60)
+            and (df['MACD Histogram'].iloc[-1] > 0.5)
             and trendingMarket
         )
         shortCondition = (
-            crossunder(emaShort, emaLong).iloc[-1]
-            and (rsi.iloc[-1] > 40)
-            and (macdHist.iloc[-1] < -0.5)
+            crossunder(df['EMA Curta (21)'], df['EMA Longa (55)']).iloc[-1]
+            and (df['RSI'].iloc[-1] > 40)
+            and (df['MACD Histogram'].iloc[-1] < -0.5)
             and trendingMarket
         )
 
-        # Get current position
+        # Obter posição atual
         current_position, position_info = get_current_position()
         if current_position is None:
-            logging.info("Failed to fetch current position.")
+            logging.info("Falha ao buscar posição atual.")
             time.sleep(5)
             continue
 
-        # Implement trading logic
+        # Implementar lógica de trading
         if not current_position:
 
             if isLateral.iloc[-1]:
-                # Mean Reversion Strategy in Lateral Market
-                if (latest_price < lowerBand.iloc[-1]) and longCondition:
-                    # Open long position
+                # Estratégia de Reversão à Média no Mercado Lateral
+                if (latest_price < df['Lower Band'].iloc[-1]) and longCondition:
+                    # Abrir posição longa
                     total_equity = get_account_balance()
-                    qty = calculate_qty(total_equity, latest_price)  # Define your position size
+                    if total_equity is None:
+                        logging.error("Falha ao buscar saldo da conta.")
+                        time.sleep(5)
+                        continue
+                    qty = calculate_qty(total_equity, latest_price)  # Definir tamanho da posição
+                    
+                    if qty is None:
+                        logging.error("Falha ao calcular a quantidade.")
+                        time.sleep(5)
+                        continue
                     
                     try:
                         order = session.place_order(
@@ -544,11 +571,11 @@ while True:
                             closeOnTrigger=False
                         )
                         if order['retMsg'] != 'OK':
-                            logging.error(f"Error placing buy order: {order['retMsg']}")
+                            logging.error(f"Erro ao colocar ordem de compra: {order['retMsg']}")
                             time.sleep(5)
                             continue
                     except Exception as e:
-                        logging.error(f"Exception placing buy order: {e}")
+                        logging.error(f"Exception ao colocar ordem de compra: {e}")
                         time.sleep(5)
                         continue
                     
@@ -579,7 +606,7 @@ while True:
                         'potential_loss': potential_loss,
                         'potential_gain': potential_gain,
                         'commission': entry_commission,
-                        'old_balance': old_balance - entry_commission,  # Subtract commission
+                        'old_balance': old_balance - entry_commission,  # Subtrai comissão
                         'new_balance': '',
                         'timeframe': '1h',
                         'setup': 'GPTAN',
@@ -593,13 +620,22 @@ while True:
                     }
 
                     log_trade_entry(trade_data)
-                    logging.info(f"Entered long position at {trade_id}, price: {entry_price}")
-                    logging.info(f"Stoploss set at {stop_loss:.2f}, Take Profit set at {stop_gain:.2f}")
+                    logging.info(f"Entrou em posição longa em {trade_id}, preço: {entry_price}")
+                    logging.info(f"Stoploss definido em {stop_loss:.2f}, Take Profit definido em {stop_gain:.2f}")
                     trade_count += 1
-                elif (latest_price > upperBand.iloc[-1]) and shortCondition:
-                    # Open short position
+                elif (latest_price > df['Upper Band'].iloc[-1]) and shortCondition:
+                    # Abrir posição curta
                     total_equity = get_account_balance()
-                    qty = calculate_qty(total_equity, latest_price) # Define your position size
+                    if total_equity is None:
+                        logging.error("Falha ao buscar saldo da conta.")
+                        time.sleep(5)
+                        continue
+                    qty = calculate_qty(total_equity, latest_price)  # Definir tamanho da posição
+                    
+                    if qty is None:
+                        logging.error("Falha ao calcular a quantidade.")
+                        time.sleep(5)
+                        continue
                     
                     try:
                         order = session.place_order(
@@ -613,11 +649,11 @@ while True:
                             closeOnTrigger=False
                         )
                         if order['retMsg'] != 'OK':
-                            logging.error(f"Error placing sell order: {order['retMsg']}")
+                            logging.error(f"Erro ao colocar ordem de venda: {order['retMsg']}")
                             time.sleep(5)
                             continue
                     except Exception as e:
-                        logging.error(f"Exception placing sell order: {e}")
+                        logging.error(f"Exception ao colocar ordem de venda: {e}")
                         time.sleep(5)
                         continue
                     
@@ -648,7 +684,7 @@ while True:
                         'potential_loss': potential_loss,
                         'potential_gain': potential_gain,
                         'commission': entry_commission,
-                        'old_balance': old_balance - entry_commission,  # Subtract commission
+                        'old_balance': old_balance - entry_commission,  # Subtrai comissão
                         'new_balance': '',
                         'timeframe': '1h',
                         'setup': 'GPTAN',
@@ -662,16 +698,25 @@ while True:
                     }
 
                     log_trade_entry(trade_data)
-                    logging.info(f"Entered short position at {trade_id}, price: {entry_price}")
-                    logging.info(f"Stoploss set at {stop_loss:.2f}, Take Profit set at {stop_gain:.2f}")
+                    logging.info(f"Entrou em posição curta em {trade_id}, preço: {entry_price}")
+                    logging.info(f"Stoploss definido em {stop_loss:.2f}, Take Profit definido em {stop_gain:.2f}")
                     trade_count += 1
 
             else:
-                # Trend Following Strategy in Trending Market
+                # Estratégia de Seguimento de Tendência no Mercado em Tendência
                 if longCondition:
-                    # Open long position
+                    # Abrir posição longa
                     total_equity = get_account_balance()
-                    qty = calculate_qty(total_equity, latest_price)  # Define your position size
+                    if total_equity is None:
+                        logging.error("Falha ao buscar saldo da conta.")
+                        time.sleep(5)
+                        continue
+                    qty = calculate_qty(total_equity, latest_price)  # Definir tamanho da posição
+                    
+                    if qty is None:
+                        logging.error("Falha ao calcular a quantidade.")
+                        time.sleep(5)
+                        continue
                     
                     try:
                         order = session.place_order(
@@ -685,11 +730,11 @@ while True:
                             closeOnTrigger=False
                         )
                         if order['retMsg'] != 'OK':
-                            logging.error(f"Error placing buy order: {order['retMsg']}")
+                            logging.error(f"Erro ao colocar ordem de compra: {order['retMsg']}")
                             time.sleep(5)
                             continue
                     except Exception as e:
-                        logging.error(f"Exception placing buy order: {e}")
+                        logging.error(f"Exception ao colocar ordem de compra: {e}")
                         time.sleep(5)
                         continue
                     
@@ -720,7 +765,7 @@ while True:
                         'potential_loss': potential_loss,
                         'potential_gain': potential_gain,
                         'commission': entry_commission,
-                        'old_balance': old_balance - entry_commission,  # Subtract commission
+                        'old_balance': old_balance - entry_commission,  # Subtrai comissão
                         'new_balance': '',
                         'timeframe': '1h',
                         'setup': 'GPTAN',
@@ -733,13 +778,22 @@ while True:
                         'exit_lateral': ''  # Inicialmente vazio
                     }
                     log_trade_entry(trade_data)
-                    logging.info(f"Entered long position at {trade_id}, price: {entry_price}")
-                    logging.info(f"Stoploss set at {stop_loss:.2f}, Take Profit set at {stop_gain:.2f}")
+                    logging.info(f"Entrou em posição longa em {trade_id}, preço: {entry_price}")
+                    logging.info(f"Stoploss definido em {stop_loss:.2f}, Take Profit definido em {stop_gain:.2f}")
                     trade_count += 1
                 elif shortCondition:
-                    # Open short position
+                    # Abrir posição curta
                     total_equity = get_account_balance()
-                    qty = calculate_qty(total_equity, latest_price)  # Define your position size
+                    if total_equity is None:
+                        logging.error("Falha ao buscar saldo da conta.")
+                        time.sleep(5)
+                        continue
+                    qty = calculate_qty(total_equity, latest_price)  # Definir tamanho da posição
+                    
+                    if qty is None:
+                        logging.error("Falha ao calcular a quantidade.")
+                        time.sleep(5)
+                        continue
                     
                     try:
                         order = session.place_order(
@@ -753,11 +807,11 @@ while True:
                             closeOnTrigger=False
                         )
                         if order['retMsg'] != 'OK':
-                            logging.error(f"Error placing sell order: {order['retMsg']}")
+                            logging.error(f"Erro ao colocar ordem de venda: {order['retMsg']}")
                             time.sleep(5)
                             continue
                     except Exception as e:
-                        logging.error(f"Exception placing sell order: {e}")
+                        logging.error(f"Exception ao colocar ordem de venda: {e}")
                         time.sleep(5)
                         continue
                     
@@ -788,7 +842,7 @@ while True:
                         'potential_loss': potential_loss,
                         'potential_gain': potential_gain,
                         'commission': entry_commission,
-                        'old_balance': old_balance - entry_commission,  # Subtract commission
+                        'old_balance': old_balance - entry_commission,  # Subtrai comissão
                         'new_balance': '',
                         'timeframe': '1h',
                         'setup': 'GPTAN',
@@ -800,30 +854,29 @@ while True:
                         'entry_lateral': 1 if isLateral.iloc[-1] else 0,  # 1 se lateral, senão 0
                         'exit_lateral': ''  # Inicialmente vazio
                     }
-
                     log_trade_entry(trade_data)
-                    logging.info(f"Entered short position at {trade_id}, price: {entry_price}")
-                    logging.info(f"Stoploss set at {stop_loss:.2f}, Take Profit set at {stop_gain:.2f}")
+                    logging.info(f"Entrou em posição curta em {trade_id}, preço: {entry_price}")
+                    logging.info(f"Stoploss definido em {stop_loss:.2f}, Take Profit definido em {stop_gain:.2f}")
                     trade_count += 1
+
         else:
-            # Manage open position
+            # Gerenciar posição aberta
             side = position_info['side']
             entry_price = position_info['entry_price']
             size = position_info['size']
             total_equity = get_account_balance()
             if total_equity is None:
-                logging.error("Failed to fetch account balance.")
+                logging.error("Falha ao buscar saldo da conta.")
                 total_equity = 0
             commission_rate = 0.00032  # 0.032%
             if isLateral.iloc[-1]:
-                # Lateral market exit conditions
+                # Condições de saída no mercado lateral
                 if side == 'buy':
-                    # Long position
+                    # Posição Longa
                     stop_loss = entry_price * stoploss_lateral_long
                     take_profit = entry_price * stopgain_lateral_long
                     if latest_price <= stop_loss or shortCondition:
-                        # Close position at stop loss or reversal
-                        
+                        # Fechar posição no Stop Loss ou reversão
                         try:
                             order = session.place_order(
                                 category='linear',
@@ -836,11 +889,11 @@ while True:
                                 closeOnTrigger=False
                             )
                             if order['retMsg'] != 'OK':
-                                logging.error(f"Error closing long position: {order['retMsg']}")
+                                logging.error(f"Erro ao fechar posição longa: {order['retMsg']}")
                                 time.sleep(5)
                                 continue
                         except Exception as e:
-                            logging.error(f"Exception closing long position: {e}")
+                            logging.error(f"Exception ao fechar posição longa: {e}")
                             time.sleep(5)
                             continue
                         
@@ -850,8 +903,8 @@ while True:
                         sell_time = datetime.utcnow().isoformat()
                         total_commission = entry_commission + exit_commission
                         outcome = (sell_price - entry_price) * size - total_commission
-                        # Ao fechar uma posição short por stop loss ou reversão:
-                        exit_lateral = 1 if isLateral.iloc[-1] else 0  # Define exit_lateral
+                        # Definir exit_lateral
+                        exit_lateral = 1 if isLateral.iloc[-1] else 0
                         update_data = {
                             'sell_price': sell_price,
                             'new_balance': new_balance,
@@ -862,8 +915,8 @@ while True:
                             'secondary_stop_gain': current_secondary_stop_gain
                         }
                         log_trade_exit(current_trade_id, symbol, update_data, exit_lateral)
-                        logging.info(f"Exited long position at {sell_time}, price: {sell_price}")
-                        # Reset tracking variables
+                        logging.info(f"Fechou posição longa em {sell_time}, preço: {sell_price}")
+                        # Resetar variáveis de tracking
                         current_trade_id = None
                         current_position_side = None
                         entry_price = None
@@ -872,8 +925,7 @@ while True:
                         entry_commission = 0
                         exit_commission = 0
                     elif latest_price >= take_profit:
-                        # Close position at take profit
-                        
+                        # Fechar posição no Take Profit
                         try:
                             order = session.place_order(
                                 category='linear',
@@ -886,11 +938,11 @@ while True:
                                 closeOnTrigger=False
                             )
                             if order['retMsg'] != 'OK':
-                                logging.error(f"Error closing long position: {order['retMsg']}")
+                                logging.error(f"Erro ao fechar posição longa: {order['retMsg']}")
                                 time.sleep(5)
                                 continue
                         except Exception as e:
-                            logging.error(f"Exception closing long position: {e}")
+                            logging.error(f"Exception ao fechar posição longa: {e}")
                             time.sleep(5)
                             continue
                         
@@ -900,8 +952,8 @@ while True:
                         sell_time = datetime.utcnow().isoformat()
                         total_commission = entry_commission + exit_commission
                         outcome = (sell_price - entry_price) * size - total_commission
-                        # Ao fechar uma posição long por stop loss ou reversão:
-                        exit_lateral = 1 if isLateral.iloc[-1] else 0  # Define exit_lateral
+                        # Definir exit_lateral
+                        exit_lateral = 1 if isLateral.iloc[-1] else 0
                         update_data = {
                             'sell_price': sell_price,
                             'new_balance': new_balance,
@@ -912,8 +964,8 @@ while True:
                             'secondary_stop_gain': current_secondary_stop_gain
                         }
                         log_trade_exit(current_trade_id, symbol, update_data, exit_lateral)
-                        logging.info(f"Exited long position at {sell_time}, price: {sell_price}")
-                        # Reset tracking variables
+                        logging.info(f"Fechou posição longa em {sell_time}, preço: {sell_price}")
+                        # Resetar variáveis de tracking
                         current_trade_id = None
                         current_position_side = None
                         entry_price = None
@@ -922,12 +974,11 @@ while True:
                         entry_commission = 0
                         exit_commission = 0
                 elif side == 'sell':
-                    # Short position
+                    # Posição Curta
                     stop_loss = entry_price * stoploss_lateral_short
                     take_profit = entry_price * stopgain_lateral_short
                     if latest_price >= stop_loss or longCondition:
-                        # Close position at stop loss or reversal
-                        
+                        # Fechar posição no Stop Loss ou reversão
                         try:
                             order = session.place_order(
                                 category='linear',
@@ -940,11 +991,11 @@ while True:
                                 closeOnTrigger=False
                             )
                             if order['retMsg'] != 'OK':
-                                logging.error(f"Error closing short position: {order['retMsg']}")
+                                logging.error(f"Erro ao fechar posição curta: {order['retMsg']}")
                                 time.sleep(5)
                                 continue
                         except Exception as e:
-                            logging.error(f"Exception closing short position: {e}")
+                            logging.error(f"Exception ao fechar posição curta: {e}")
                             time.sleep(5)
                             continue
                         
@@ -954,8 +1005,8 @@ while True:
                         sell_time = datetime.utcnow().isoformat()
                         total_commission = entry_commission + exit_commission
                         outcome = (entry_price - sell_price) * size - total_commission
-                        # Ao fechar uma posição short por stop loss ou reversão:
-                        exit_lateral = 1 if isLateral.iloc[-1] else 0  # Define exit_lateral
+                        # Definir exit_lateral
+                        exit_lateral = 1 if isLateral.iloc[-1] else 0
                         update_data = {
                             'sell_price': sell_price,
                             'new_balance': new_balance,
@@ -966,9 +1017,8 @@ while True:
                             'secondary_stop_gain': current_secondary_stop_gain
                         }
                         log_trade_exit(current_trade_id, symbol, update_data, exit_lateral)
-
-                        logging.info(f"Exited short position at {sell_time}, price: {sell_price}")
-                        # Reset tracking variables
+                        logging.info(f"Fechou posição curta em {sell_time}, preço: {sell_price}")
+                        # Resetar variáveis de tracking
                         current_trade_id = None
                         current_position_side = None
                         entry_price = None
@@ -977,8 +1027,7 @@ while True:
                         entry_commission = 0
                         exit_commission = 0
                     elif latest_price <= take_profit:
-                        # Close position at take profit
-                        
+                        # Fechar posição no Take Profit
                         try:
                             order = session.place_order(
                                 category='linear',
@@ -991,11 +1040,11 @@ while True:
                                 closeOnTrigger=False
                             )
                             if order['retMsg'] != 'OK':
-                                logging.error(f"Error closing short position: {order['retMsg']}")
+                                logging.error(f"Erro ao fechar posição curta: {order['retMsg']}")
                                 time.sleep(5)
                                 continue
                         except Exception as e:
-                            logging.error(f"Exception closing short position: {e}")
+                            logging.error(f"Exception ao fechar posição curta: {e}")
                             time.sleep(5)
                             continue
                         
@@ -1005,8 +1054,8 @@ while True:
                         sell_time = datetime.utcnow().isoformat()
                         total_commission = entry_commission + exit_commission
                         outcome = (entry_price - sell_price) * size - total_commission
-                        # Ao fechar uma posição short por stop loss ou reversão:
-                        exit_lateral = 1 if isLateral.iloc[-1] else 0  # Define exit_lateral
+                        # Definir exit_lateral
+                        exit_lateral = 1 if isLateral.iloc[-1] else 0
                         update_data = {
                             'sell_price': sell_price,
                             'new_balance': new_balance,
@@ -1017,9 +1066,8 @@ while True:
                             'secondary_stop_gain': current_secondary_stop_gain
                         }
                         log_trade_exit(current_trade_id, symbol, update_data, exit_lateral)
-
-                        logging.info(f"Exited short position at {sell_time}, price: {sell_price}")
-                        # Reset tracking variables
+                        logging.info(f"Fechou posição curta em {sell_time}, preço: {sell_price}")
+                        # Resetar variáveis de tracking
                         current_trade_id = None
                         current_position_side = None
                         entry_price = None
@@ -1028,14 +1076,13 @@ while True:
                         entry_commission = 0
                         exit_commission = 0
             else:
-                # Trending market exit conditions
+                # Condições de saída no mercado em tendência
                 if side == 'buy':
-                    # Long position
+                    # Posição Longa
                     stop_loss = entry_price * stoploss_normal_long
                     take_profit = entry_price * stopgain_normal_long
                     if latest_price <= stop_loss or shortCondition:
-                        # Close position at stop loss or reversal
-                        
+                        # Fechar posição no Stop Loss ou reversão
                         try:
                             order = session.place_order(
                                 category='linear',
@@ -1048,11 +1095,11 @@ while True:
                                 closeOnTrigger=False
                             )
                             if order['retMsg'] != 'OK':
-                                logging.error(f"Error closing long position: {order['retMsg']}")
+                                logging.error(f"Erro ao fechar posição longa: {order['retMsg']}")
                                 time.sleep(5)
                                 continue
                         except Exception as e:
-                            logging.error(f"Exception closing long position: {e}")
+                            logging.error(f"Exception ao fechar posição longa: {e}")
                             time.sleep(5)
                             continue
                         
@@ -1062,8 +1109,8 @@ while True:
                         sell_time = datetime.utcnow().isoformat()
                         total_commission = entry_commission + exit_commission
                         outcome = (sell_price - entry_price) * size - total_commission
-                        # Ao fechar uma posição long por stop loss ou reversão:
-                        exit_lateral = 1 if isLateral.iloc[-1] else 0  # Define exit_lateral
+                        # Definir exit_lateral
+                        exit_lateral = 1 if isLateral.iloc[-1] else 0
                         update_data = {
                             'sell_price': sell_price,
                             'new_balance': new_balance,
@@ -1074,9 +1121,8 @@ while True:
                             'secondary_stop_gain': current_secondary_stop_gain
                         }
                         log_trade_exit(current_trade_id, symbol, update_data, exit_lateral)
-
-                        logging.info(f"Exited long position at {sell_time}, price: {sell_price}")
-                        # Reset tracking variables
+                        logging.info(f"Fechou posição longa em {sell_time}, preço: {sell_price}")
+                        # Resetar variáveis de tracking
                         current_trade_id = None
                         current_position_side = None
                         entry_price = None
@@ -1085,8 +1131,7 @@ while True:
                         entry_commission = 0
                         exit_commission = 0
                     elif latest_price >= take_profit:
-                        # Close position at take profit
-                        
+                        # Fechar posição no Take Profit
                         try:
                             order = session.place_order(
                                 category='linear',
@@ -1099,11 +1144,11 @@ while True:
                                 closeOnTrigger=False
                             )
                             if order['retMsg'] != 'OK':
-                                logging.error(f"Error closing long position: {order['retMsg']}")
+                                logging.error(f"Erro ao fechar posição longa: {order['retMsg']}")
                                 time.sleep(5)
                                 continue
                         except Exception as e:
-                            logging.error(f"Exception closing long position: {e}")
+                            logging.error(f"Exception ao fechar posição longa: {e}")
                             time.sleep(5)
                             continue
                         
@@ -1113,8 +1158,8 @@ while True:
                         sell_time = datetime.utcnow().isoformat()
                         total_commission = entry_commission + exit_commission
                         outcome = (sell_price - entry_price) * size - total_commission
-                        # Ao fechar uma posição long por stop loss ou reversão:
-                        exit_lateral = 1 if isLateral.iloc[-1] else 0  # Define exit_lateral
+                        # Definir exit_lateral
+                        exit_lateral = 1 if isLateral.iloc[-1] else 0
                         update_data = {
                             'sell_price': sell_price,
                             'new_balance': new_balance,
@@ -1125,9 +1170,8 @@ while True:
                             'secondary_stop_gain': current_secondary_stop_gain
                         }
                         log_trade_exit(current_trade_id, symbol, update_data, exit_lateral)
-
-                        logging.info(f"Exited long position at {sell_time}, price: {sell_price}")
-                        # Reset tracking variables
+                        logging.info(f"Fechou posição longa em {sell_time}, preço: {sell_price}")
+                        # Resetar variáveis de tracking
                         current_trade_id = None
                         current_position_side = None
                         entry_price = None
@@ -1136,12 +1180,11 @@ while True:
                         entry_commission = 0
                         exit_commission = 0
                 elif side == 'sell':
-                    # Short position
+                    # Posição Curta
                     stop_loss = entry_price * stoploss_normal_short
                     take_profit = entry_price * stopgain_normal_short
                     if latest_price >= stop_loss or longCondition:
-                        # Close position at stop loss or reversal
-                        
+                        # Fechar posição no Stop Loss ou reversão
                         try:
                             order = session.place_order(
                                 category='linear',
@@ -1154,21 +1197,22 @@ while True:
                                 closeOnTrigger=False
                             )
                             if order['retMsg'] != 'OK':
-                                logging.error(f"Error closing short position: {order['retMsg']}")
+                                logging.error(f"Erro ao fechar posição curta: {order['retMsg']}")
                                 time.sleep(5)
                                 continue
                         except Exception as e:
-                            logging.error(f"Exception closing short position: {e}")
+                            logging.error(f"Exception ao fechar posição curta: {e}")
                             time.sleep(5)
                             continue
+                        
                         sell_price = latest_price
                         exit_commission = total_equity * commission_rate
                         new_balance = total_equity - exit_commission
                         sell_time = datetime.utcnow().isoformat()
                         total_commission = entry_commission + exit_commission
                         outcome = (entry_price - sell_price) * size - total_commission
-                        # Ao fechar uma posição short por stop loss ou reversão:
-                        exit_lateral = 1 if isLateral.iloc[-1] else 0  # Define exit_lateral
+                        # Definir exit_lateral
+                        exit_lateral = 1 if isLateral.iloc[-1] else 0
                         update_data = {
                             'sell_price': sell_price,
                             'new_balance': new_balance,
@@ -1179,8 +1223,8 @@ while True:
                             'secondary_stop_gain': current_secondary_stop_gain
                         }
                         log_trade_exit(current_trade_id, symbol, update_data, exit_lateral)
-                        logging.info(f"Exited short position at {sell_time}, price: {sell_price}")
-                        # Reset tracking variables
+                        logging.info(f"Fechou posição curta em {sell_time}, preço: {sell_price}")
+                        # Resetar variáveis de tracking
                         current_trade_id = None
                         current_position_side = None
                         entry_price = None
@@ -1189,8 +1233,7 @@ while True:
                         entry_commission = 0
                         exit_commission = 0
                     elif latest_price <= take_profit:
-                        # Close position at take profit
-                        
+                        # Fechar posição no Take Profit
                         try:
                             order = session.place_order(
                                 category='linear',
@@ -1203,21 +1246,22 @@ while True:
                                 closeOnTrigger=False
                             )
                             if order['retMsg'] != 'OK':
-                                logging.error(f"Error closing short position: {order['retMsg']}")
+                                logging.error(f"Erro ao fechar posição curta: {order['retMsg']}")
                                 time.sleep(5)
                                 continue
                         except Exception as e:
-                            logging.error(f"Exception closing short position: {e}")
+                            logging.error(f"Exception ao fechar posição curta: {e}")
                             time.sleep(5)
                             continue
+                        
                         sell_price = latest_price
                         exit_commission = total_equity * commission_rate
                         new_balance = total_equity - exit_commission
                         sell_time = datetime.utcnow().isoformat()
                         total_commission = entry_commission + exit_commission
                         outcome = (entry_price - sell_price) * size - total_commission
-                        # Ao fechar uma posição short por stop loss ou reversão:
-                        exit_lateral = 1 if isLateral.iloc[-1] else 0  # Define exit_lateral
+                        # Definir exit_lateral
+                        exit_lateral = 1 if isLateral.iloc[-1] else 0
                         update_data = {
                             'sell_price': sell_price,
                             'new_balance': new_balance,
@@ -1228,8 +1272,8 @@ while True:
                             'secondary_stop_gain': current_secondary_stop_gain
                         }
                         log_trade_exit(current_trade_id, symbol, update_data, exit_lateral)
-                        logging.info(f"Exited short position at {sell_time}, price: {sell_price}")
-                        # Reset tracking variables
+                        logging.info(f"Fechou posição curta em {sell_time}, preço: {sell_price}")
+                        # Resetar variáveis de tracking
                         current_trade_id = None
                         current_position_side = None
                         entry_price = None
@@ -1238,14 +1282,14 @@ while True:
                         entry_commission = 0
                         exit_commission = 0
 
-        # Wait for 1 second before next price check
+        # Esperar 1 segundo antes da próxima verificação de preço
         time.sleep(1)
 
     except KeyboardInterrupt:
-        logging.info("Bot stopped manually.")
+        logging.info("Bot parado manualmente.")
         break
     except Exception as e:
-        logging.error(f"An unexpected error occurred: {e}")
+        logging.error(f"Ocorreu um erro inesperado: {e}")
         logging.error(traceback.format_exc())
-        time.sleep(5)  # Brief pause before retrying
+        time.sleep(5)  # Pausa breve antes de tentar novamente
         continue
