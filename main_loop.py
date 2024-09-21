@@ -1,5 +1,6 @@
 import pandas as pd
 import numpy as np
+import json
 from datetime import datetime, timedelta
 import talib
 import os
@@ -47,9 +48,46 @@ if not os.path.isfile(trade_history_file):
     columns = ['trade_id', 'timestamp', 'symbol', 'buy_price', 'sell_price', 'quantity',
                'stop_loss', 'stop_gain', 'potential_loss', 'potential_gain', 'timeframe',
                'setup', 'outcome', 'commission', 'old_balance', 'new_balance',
-               'secondary_stop_loss', 'secondary_stop_gain', 'sell_time']
+               'secondary_stop_loss', 'secondary_stop_gain', 'sell_time', 'type', 'entry_lateral', 'exit_lateral']
     df_trade_history = pd.DataFrame(columns=columns)
     df_trade_history.to_csv(trade_history_file, index=False)
+
+# Caminho para o arquivo que armazenará os valores das EMAs
+ema_values_file = 'ema_values.json'
+
+# Tente carregar os valores das EMAs do arquivo
+try:
+    with open(ema_values_file, 'r') as f:
+        ema_values = json.load(f)
+        prev_emaShort = ema_values.get('prev_emaShort', 63077.126)
+        prev_emaLong = ema_values.get('prev_emaLong', 62701.184)
+        logging.info(f"Loaded previous EMA values from file: EMA Short = {prev_emaShort}, EMA Long = {prev_emaLong}")
+except FileNotFoundError:
+    # Se o arquivo não existir, use os valores padrão
+    prev_emaShort = 63077.126
+    prev_emaLong = 62701.184
+    logging.info("EMA values file not found. Using default values.")
+
+# Função para calcular a EMA personalizada
+def calculate_ema(current_price, previous_ema, period=55):
+    """
+    Função para calcular a EMA de N períodos com base no preço atual e no EMA anterior.
+
+    Parâmetros:
+    current_price (float): O preço atual da vela.
+    previous_ema (float): O EMA calculado anteriormente (EMA t-1).
+    period (int): O número de períodos para a EMA, por padrão 55.
+
+    Retorno:
+    float: O novo valor da EMA calculado.
+    """
+    # Fator de suavização
+    alpha = 2 / (period + 1)
+
+    # Fórmula para calcular a nova EMA
+    ema = (current_price * alpha) + (previous_ema * (1 - alpha))
+
+    return ema
 
 # Function to fetch historical kline data
 def get_historical_klines(symbol, interval, limit):
@@ -85,8 +123,8 @@ def get_historical_klines(symbol, interval, limit):
         logging.error(f"Exception in get_historical_klines: {e}")
         return None
 
-# Function to calculate indicators
-def calculate_indicators(df):
+# Função para calcular indicadores
+def calculate_indicators(df, prev_emaShort=63077.126, prev_emaLong=62701.184):
     try:
         close_price = df['close'].values
         high_price = df['high'].values
@@ -106,9 +144,18 @@ def calculate_indicators(df):
         bbMultiplier = 1.7
         lateralThreshold = 0.005
 
-        # Calculating indicators using TA-Lib
-        emaShort = talib.EMA(close_price, emaShortLength)
-        emaLong = talib.EMA(close_price, emaLongLength)
+        # Calculando EMA usando a função personalizada
+        emaShort = np.zeros_like(close_price)
+        emaLong = np.zeros_like(close_price)
+
+        emaShort[0] = prev_emaShort
+        emaLong[0] = prev_emaLong
+
+        for i in range(1, len(close_price)):
+            emaShort[i] = calculate_ema(close_price[i - 1], emaShort[i - 1], period=emaShortLength)
+            emaLong[i] = calculate_ema(close_price[i - 1], emaLong[i - 1], period=emaLongLength)
+
+        # Agora, prossiga com os outros indicadores
         rsi = talib.RSI(close_price, timeperiod=rsiLength)
         macdLine, signalLine, macdHist = talib.MACD(
             close_price, fastperiod=macdShort, slowperiod=macdLong, signalperiod=macdSignal
@@ -189,8 +236,6 @@ def get_current_position(retries=3, backoff_factor=5):
 
     logging.error("Falha ao obter posição atual após várias tentativas.")
     return False, None
-
-
 
 # Function to fetch the latest price
 def get_latest_price():
@@ -322,13 +367,13 @@ current_secondary_stop_loss = None
 current_secondary_stop_gain = None
 previous_commission = 0  # To store commission from entry
 
-# Main trading loop
+# Loop principal de trading
 while True:
     try:
         current_time = datetime.utcnow()
-        # Check if it's time to update the indicators (every hour)
+        # Verifique se é hora de atualizar os indicadores (a cada hora)
         if last_candle_time is None or (current_time - last_candle_time).seconds >= 3600:
-            # Fetch the latest 1-hour kline data
+            # Obtenha os dados mais recentes de kline de 1 hora
             df = get_historical_klines(symbol, interval=60, limit=200)
             if df is None or df.empty:
                 logging.error("Failed to fetch historical klines or received empty data.")
@@ -336,14 +381,14 @@ while True:
                 continue
             df = df.sort_values('timestamp')
 
-            # Calculate indicators
-            df = calculate_indicators(df)
+            # Calcule os indicadores
+            df = calculate_indicators(df, prev_emaShort, prev_emaLong)
             if df is None:
                 logging.error("Failed to calculate indicators.")
                 time.sleep(10)
                 continue
 
-            # Get the latest data point
+            # Obtenha o último ponto de dados
             last_row = df.iloc[-1]
             adjusted_timestamp = last_row['timestamp']
             emaShort = df['emaShort']
@@ -355,6 +400,16 @@ while True:
             upperBand = df['upperBand']
             lowerBand = df['lowerBand']
             bandWidth = df['bandWidth']
+
+            # Atualize as EMAs anteriores para o próximo cálculo
+            prev_emaShort = emaShort[-1]
+            prev_emaLong = emaLong[-1]
+
+            # Salve os valores das EMAs no arquivo
+            ema_values = {'prev_emaShort': prev_emaShort, 'prev_emaLong': prev_emaLong}
+            with open(ema_values_file, 'w') as f:
+                json.dump(ema_values, f)
+            logging.info(f"Saved EMA values to file: EMA Short = {prev_emaShort}, EMA Long = {prev_emaLong}")
 
             # Determine trending market
             trendingMarket = adx.iloc[-1] >= 12  # adxThreshold
@@ -502,7 +557,7 @@ while True:
                     secondary_stop_gain = stop_gain
                     current_secondary_stop_loss = secondary_stop_loss
                     current_secondary_stop_gain = secondary_stop_gain
-                    commission_rate = 0.0006  # 0.03%
+                    commission_rate = 0.0006  # 0.06%
                     commission = entry_price * qty * commission_rate
                     previous_commission = commission
                     potential_loss = ((entry_price - stop_loss) * qty) / old_balance * 100 if old_balance > 0 else 0
@@ -527,9 +582,9 @@ while True:
                         'secondary_stop_loss': secondary_stop_loss,
                         'secondary_stop_gain': secondary_stop_gain,
                         'sell_time': '',
-                        'type': 'long',  # Define como 'long'
-                        'entry_lateral': 1 if isLateral.iloc[-1] else 0,  # 1 se lateral, senão 0
-                        'exit_lateral': ''  # Inicialmente vazio
+                        'type': 'long',
+                        'entry_lateral': 1 if isLateral.iloc[-1] else 0,
+                        'exit_lateral': ''
                     }
 
                     log_trade_entry(trade_data)
@@ -575,7 +630,7 @@ while True:
                     secondary_stop_gain = stop_gain
                     current_secondary_stop_loss = secondary_stop_loss
                     current_secondary_stop_gain = secondary_stop_gain
-                    commission_rate = 0.0006  # 0.03%
+                    commission_rate = 0.0006  # 0.06%
                     commission = entry_price * qty * commission_rate
                     previous_commission = commission
                     potential_loss = ((stop_loss - entry_price) * qty) / old_balance * 100 if old_balance > 0 else 0
@@ -600,9 +655,9 @@ while True:
                         'secondary_stop_loss': secondary_stop_loss,
                         'secondary_stop_gain': secondary_stop_gain,
                         'sell_time': '',
-                        'type': 'short',  # Define como 'short'
-                        'entry_lateral': 1 if isLateral.iloc[-1] else 0,  # 1 se lateral, senão 0
-                        'exit_lateral': ''  # Inicialmente vazio
+                        'type': 'short',
+                        'entry_lateral': 1 if isLateral.iloc[-1] else 0,
+                        'exit_lateral': ''
                     }
 
             else:
@@ -671,9 +726,9 @@ while True:
                         'secondary_stop_loss': secondary_stop_loss,
                         'secondary_stop_gain': secondary_stop_gain,
                         'sell_time': '',
-                        'type': 'long',  # Define como 'long'
-                        'entry_lateral': 1 if isLateral.iloc[-1] else 0,  # 1 se lateral, senão 0
-                        'exit_lateral': ''  # Inicialmente vazio
+                        'type': 'long',
+                        'entry_lateral': 1 if isLateral.iloc[-1] else 0,
+                        'exit_lateral': ''
                     }
                     log_trade_entry(trade_data)
                     logging.info(f"Entered long position at {trade_id}, price: {entry_price}")
@@ -743,9 +798,9 @@ while True:
                         'secondary_stop_loss': secondary_stop_loss,
                         'secondary_stop_gain': secondary_stop_gain,
                         'sell_time': '',
-                        'type': 'short',  # Define como 'short'
-                        'entry_lateral': 1 if isLateral.iloc[-1] else 0,  # 1 se lateral, senão 0
-                        'exit_lateral': ''  # Inicialmente vazio
+                        'type': 'short',
+                        'entry_lateral': 1 if isLateral.iloc[-1] else 0,
+                        'exit_lateral': ''
                     }
 
                     log_trade_entry(trade_data)
@@ -757,7 +812,7 @@ while True:
             side = position_info['side']
             entry_price = position_info['entry_price']
             size = position_info['size']
-            commission_rate = 0.0006  # 0.03%
+            commission_rate = 0.0006  # 0.06%
             if isLateral.iloc[-1]:
                 # Lateral market exit conditions
                 if side == 'buy':
@@ -796,8 +851,7 @@ while True:
                         commission = sell_price * size * commission_rate
                         total_commission = previous_commission + commission
                         outcome = (sell_price - entry_price) * size - total_commission
-                        # Ao fechar uma posição short por stop loss ou reversão:
-                        exit_lateral = 1 if isLateral.iloc[-1] else 0  # Define exit_lateral
+                        exit_lateral = 1 if isLateral.iloc[-1] else 0
                         update_data = {
                             'sell_price': sell_price,
                             'new_balance': new_balance,
@@ -848,8 +902,7 @@ while True:
                         commission = sell_price * size * commission_rate
                         total_commission = previous_commission + commission
                         outcome = (sell_price - entry_price) * size - total_commission
-                        # Ao fechar uma posição long por stop loss ou reversão:
-                        exit_lateral = 1 if isLateral.iloc[-1] else 0  # Define exit_lateral
+                        exit_lateral = 1 if isLateral.iloc[-1] else 0
                         update_data = {
                             'sell_price': sell_price,
                             'new_balance': new_balance,
@@ -904,8 +957,7 @@ while True:
                         commission = sell_price * size * commission_rate
                         total_commission = previous_commission + commission
                         outcome = (entry_price - sell_price) * size - total_commission
-                        # Ao fechar uma posição short por stop loss ou reversão:
-                        exit_lateral = 1 if isLateral.iloc[-1] else 0  # Define exit_lateral
+                        exit_lateral = 1 if isLateral.iloc[-1] else 0
                         update_data = {
                             'sell_price': sell_price,
                             'new_balance': new_balance,
@@ -957,8 +1009,7 @@ while True:
                         commission = sell_price * size * commission_rate
                         total_commission = previous_commission + commission
                         outcome = (entry_price - sell_price) * size - total_commission
-                        # Ao fechar uma posição short por stop loss ou reversão:
-                        exit_lateral = 1 if isLateral.iloc[-1] else 0  # Define exit_lateral
+                        exit_lateral = 1 if isLateral.iloc[-1] else 0
                         update_data = {
                             'sell_price': sell_price,
                             'new_balance': new_balance,
@@ -1016,8 +1067,7 @@ while True:
                         commission = sell_price * size * commission_rate
                         total_commission = previous_commission + commission
                         outcome = (sell_price - entry_price) * size - total_commission
-                        # Ao fechar uma posição long por stop loss ou reversão:
-                        exit_lateral = 1 if isLateral.iloc[-1] else 0  # Define exit_lateral
+                        exit_lateral = 1 if isLateral.iloc[-1] else 0
                         update_data = {
                             'sell_price': sell_price,
                             'new_balance': new_balance,
@@ -1069,8 +1119,7 @@ while True:
                         commission = sell_price * size * commission_rate
                         total_commission = previous_commission + commission
                         outcome = (sell_price - entry_price) * size - total_commission
-                        # Ao fechar uma posição long por stop loss ou reversão:
-                        exit_lateral = 1 if isLateral.iloc[-1] else 0  # Define exit_lateral
+                        exit_lateral = 1 if isLateral.iloc[-1] else 0
                         update_data = {
                             'sell_price': sell_price,
                             'new_balance': new_balance,
@@ -1126,8 +1175,7 @@ while True:
                         commission = sell_price * size * commission_rate
                         total_commission = previous_commission + commission
                         outcome = (entry_price - sell_price) * size - total_commission
-                        # Ao fechar uma posição short por stop loss ou reversão:
-                        exit_lateral = 1 if isLateral.iloc[-1] else 0  # Define exit_lateral
+                        exit_lateral = 1 if isLateral.iloc[-1] else 0
                         update_data = {
                             'sell_price': sell_price,
                             'new_balance': new_balance,
@@ -1178,8 +1226,7 @@ while True:
                         commission = sell_price * size * commission_rate
                         total_commission = previous_commission + commission
                         outcome = (entry_price - sell_price) * size - total_commission
-                        # Ao fechar uma posição short por stop loss ou reversão:
-                        exit_lateral = 1 if isLateral.iloc[-1] else 0  # Define exit_lateral
+                        exit_lateral = 1 if isLateral.iloc[-1] else 0
                         update_data = {
                             'sell_price': sell_price,
                             'new_balance': new_balance,
@@ -1208,5 +1255,5 @@ while True:
     except Exception as e:
         logging.error(f"An unexpected error occurred: {e}")
         logging.error(traceback.format_exc())
-        time.sleep(5)  # Brief pause before retrying
+        time.sleep(5)  # Pausa breve antes de tentar novamente
         continue
