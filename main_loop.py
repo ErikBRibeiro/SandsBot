@@ -84,72 +84,42 @@ def get_historical_klines(symbol, interval, limit):
     except Exception as e:
         logging.error(f"Exception in get_historical_klines: {e}")
         return None
-    
-def calculate_ema(current_price, previous_ema, period=55):
-    """
-    Função para calcular a EMA de N períodos com base no preço atual e no EMA anterior.
 
-    Parâmetros:
-    current_price (float): O preço atual da vela.
-    previous_ema (float): O EMA calculado anteriormente (EMA t-1).
-    period (int): O número de períodos para a EMA, por padrão 55.
-
-    Retorno:
-    float: O novo valor da EMA calculado.
-    """
-    # Fator de suavização
-    alpha = 2 / (period + 1)
-    
-    # Fórmula para calcular a nova EMA
-    ema = (current_price * alpha) + (previous_ema * (1 - alpha))
-    
-    return ema
-
-def calcular_ema_series(close_prices, initial_ema, period=55):
-    """
-    Função para calcular a série de EMA com base em uma série de preços de fechamento e um valor inicial de EMA.
-
-    Parâmetros:
-    close_prices (pd.Series): Uma série de preços de fechamento.
-    initial_ema (float): O valor inicial da EMA.
-    period (int): O número de períodos para a EMA, por padrão 55.
-
-    Retorno:
-    pd.Series: Uma série de valores de EMA calculados.
-    """
-    ema_values = [initial_ema]  # Começa com o valor inicial fornecido
-
-    # Itera pelos preços, começando pelo segundo, já que o primeiro é o initial_ema
-    for current_price in close_prices[1:]:
-        new_ema = calculate_ema(current_price, ema_values[-1], period)
-        ema_values.append(new_ema)
-    
-    return pd.Series(ema_values, index=close_prices.index)
-
-# Função para calcular os indicadores
+# Function to calculate indicators
 def calculate_indicators(df):
     try:
-        close_price = df['close']
+        close_price = df['close'].values
+        high_price = df['high'].values
+        low_price = df['low'].values
 
-        # Valores iniciais para as EMAs
-        initial_ema_short = close_price.iloc[0]  # Ou o valor calculado anteriormente
-        initial_ema_long = close_price.iloc[0]   # Ou o valor calculado anteriormente
+        # Parameters
+        emaShortLength = 11
+        emaLongLength = 55
+        rsiLength = 22
+        macdShort = 15
+        macdLong = 34
+        macdSignal = 11
+        adxLength = 16
+        adxSmoothing = 13
+        adxThreshold = 12
+        bbLength = 14
+        bbMultiplier = 1.7
+        lateralThreshold = 0.005
 
-        # Parâmetros
-        emaShortLength = 21  # EMA Curta (21)
-        emaLongLength = 55   # EMA Longa (55)
+        # Calculating indicators using TA-Lib
+        emaShort = talib.EMA(close_price, emaShortLength)
+        emaLong = talib.EMA(close_price, emaLongLength)
+        rsi = talib.RSI(close_price, timeperiod=rsiLength)
+        macdLine, signalLine, macdHist = talib.MACD(
+            close_price, fastperiod=macdShort, slowperiod=macdLong, signalperiod=macdSignal
+        )
+        upperBand, middleBand, lowerBand = talib.BBANDS(
+            close_price, timeperiod=bbLength, nbdevup=bbMultiplier, nbdevdn=bbMultiplier
+        )
+        adx = talib.ADX(high_price, low_price, close_price, timeperiod=adxSmoothing)
+        bandWidth = (upperBand - lowerBand) / middleBand
+        isLateral = bandWidth < lateralThreshold
 
-        # Calculando as EMAs usando a função personalizada
-        emaShort = calcular_ema_series(close_price, initial_ema_short, period=emaShortLength)
-        emaLong = calcular_ema_series(close_price, initial_ema_long, period=emaLongLength)
-
-        # RSI, MACD, Bandas de Bollinger e ADX ainda podem ser calculados com TA-Lib
-        rsi = talib.RSI(close_price, timeperiod=14)
-        macdLine, signalLine, macdHist = talib.MACD(close_price, fastperiod=12, slowperiod=26, signalperiod=9)
-        upperBand, middleBand, lowerBand = talib.BBANDS(close_price, timeperiod=20, nbdevup=2, nbdevdn=2)
-        adx = talib.ADX(df['high'], df['low'], close_price, timeperiod=14)
-
-        # Adiciona os indicadores ao DataFrame
         df['emaShort'] = emaShort
         df['emaLong'] = emaLong
         df['rsi'] = rsi
@@ -163,9 +133,8 @@ def calculate_indicators(df):
 
         return df
     except Exception as e:
-        logging.error(f"Exception em calculate_indicators: {e}")
+        logging.error(f"Exception in calculate_indicators: {e}")
         return None
-
 
 # Helper functions for crossover logic
 def crossover(series1, series2):
@@ -458,7 +427,6 @@ while True:
                         take_profit = entry_price * stopgain_normal_short
                 logging.info(f"Bot status: In a {side.lower()} position.")
                 logging.info(f"Current Stoploss: {stop_loss:.2f}, Take Profit: {take_profit:.2f}")
-                logging.info(f'DF COMPLETO: {df}')
             last_log_time = current_time
 
         # Fetch the latest price every second
