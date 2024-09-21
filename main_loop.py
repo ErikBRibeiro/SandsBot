@@ -123,6 +123,15 @@ def get_historical_klines(symbol, interval, limit):
         logging.error(f"Exception in get_historical_klines: {e}")
         return None
 
+# Funções para cálculo manual do MACD
+def macd_func(series, fast_period, slow_period, signal_period):
+    ema_fast = talib.EMA(series, fast_period)
+    ema_slow = talib.EMA(series, slow_period)
+    macd_line = ema_fast - ema_slow
+    signal_line = talib.EMA(macd_line, signal_period)
+    macd_hist = macd_line - signal_line
+    return macd_line, signal_line, macd_hist
+
 def get_adx_manual(high, low, close, di_lookback, adx_smoothing):
     tr = []
     previous_close = close.iloc[0]
@@ -195,12 +204,11 @@ def calculate_indicators(df, prev_emaShort=63077.126, prev_emaLong=62701.184):
 
         # Proceed with other indicators
         rsi = talib.RSI(close_price, timeperiod=rsiLength)
-        macdLine, signalLine, macdHist = talib.MACD(
-            close_price, fastperiod=macdShort, slowperiod=macdLong, signalperiod=macdSignal
-        )
+        macdLine, signalLine, macdHist = macd_func(close_price, macdShort, macdLong, macdSignal)
         upperBand, middleBand, lowerBand = talib.BBANDS(
             close_price, timeperiod=bbLength, nbdevup=bbMultiplier, nbdevdn=bbMultiplier
         )
+        plus_di, minus_di, adx = get_adx_manual(high_price, low_price, close_price, adxLength, adxSmoothing)
         adx = adx.fillna(0).astype(int)
         bandWidth = (upperBand - lowerBand) / middleBand
         isLateral = bandWidth < lateralThreshold
