@@ -52,10 +52,10 @@ if not os.path.isfile(trade_history_file):
     df_trade_history = pd.DataFrame(columns=columns)
     df_trade_history.to_csv(trade_history_file, index=False)
 
-# Caminho para o arquivo que armazenará os valores das EMAs
+# Path to the file that will store EMA values
 ema_values_file = 'ema_values.json'
 
-# Tente carregar os valores das EMAs do arquivo
+# Try to load EMA values from the file
 try:
     with open(ema_values_file, 'r') as f:
         ema_values = json.load(f)
@@ -63,28 +63,28 @@ try:
         prev_emaLong = ema_values.get('prev_emaLong', 62701.184)
         logging.info(f"Loaded previous EMA values from file: EMA Short = {prev_emaShort}, EMA Long = {prev_emaLong}")
 except FileNotFoundError:
-    # Se o arquivo não existir, use os valores padrão
+    # If the file does not exist, use default values
     prev_emaShort = 63077.126
     prev_emaLong = 62701.184
     logging.info("EMA values file not found. Using default values.")
 
-# Função para calcular a EMA personalizada
+# Function to calculate custom EMA
 def calculate_ema(current_price, previous_ema, period=55):
     """
-    Função para calcular a EMA de N períodos com base no preço atual e no EMA anterior.
+    Function to calculate N-period EMA based on current price and previous EMA.
 
-    Parâmetros:
-    current_price (float): O preço atual da vela.
-    previous_ema (float): O EMA calculado anteriormente (EMA t-1).
-    period (int): O número de períodos para a EMA, por padrão 55.
+    Parameters:
+    current_price (float): The current candle's price.
+    previous_ema (float): The previously calculated EMA (EMA t-1).
+    period (int): The number of periods for the EMA, default is 55.
 
-    Retorno:
-    float: O novo valor da EMA calculado.
+    Returns:
+    float: The newly calculated EMA value.
     """
-    # Fator de suavização
+    # Smoothing factor
     alpha = 2 / (period + 1)
 
-    # Fórmula para calcular a nova EMA
+    # Formula to calculate the new EMA
     ema = (current_price * alpha) + (previous_ema * (1 - alpha))
 
     return ema
@@ -123,7 +123,7 @@ def get_historical_klines(symbol, interval, limit):
         logging.error(f"Exception in get_historical_klines: {e}")
         return None
 
-# Função para calcular indicadores
+# Function to calculate indicators
 def calculate_indicators(df, prev_emaShort=63077.126, prev_emaLong=62701.184):
     try:
         close_price = df['close'].values
@@ -144,7 +144,7 @@ def calculate_indicators(df, prev_emaShort=63077.126, prev_emaLong=62701.184):
         bbMultiplier = 1.7
         lateralThreshold = 0.005
 
-        # Calculando EMA usando a função personalizada
+        # Calculating EMA using the custom function
         emaShort = np.zeros_like(close_price)
         emaLong = np.zeros_like(close_price)
 
@@ -155,7 +155,7 @@ def calculate_indicators(df, prev_emaShort=63077.126, prev_emaLong=62701.184):
             emaShort[i] = calculate_ema(close_price[i - 1], emaShort[i - 1], period=emaShortLength)
             emaLong[i] = calculate_ema(close_price[i - 1], emaLong[i - 1], period=emaLongLength)
 
-        # Agora, prossiga com os outros indicadores
+        # Proceed with other indicators
         rsi = talib.RSI(close_price, timeperiod=rsiLength)
         macdLine, signalLine, macdHist = talib.MACD(
             close_price, fastperiod=macdShort, slowperiod=macdLong, signalperiod=macdSignal
@@ -200,24 +200,24 @@ def crossunder(series1, series2):
         logging.error(f"Exception in crossunder function: {e}")
         return pd.Series([False])
 
-# Função para obter a posição atual
+# Function to get the current position
 def get_current_position(retries=3, backoff_factor=5):
     attempt = 0
     while attempt < retries:
         try:
-            # Utilizando o método correto para obter posições
+            # Using the correct method to get positions
             positions = session.get_positions(
-                category='linear',  # linear para contratos perpétuos
-                symbol=symbol       # par de símbolos como BTCUSDT
+                category='linear',  # 'linear' for perpetual contracts
+                symbol=symbol       # symbol pair like BTCUSDT
             )
             
-            # Verificar se a resposta foi bem-sucedida
+            # Check if the response was successful
             if positions['retMsg'] != 'OK':
                 return None, None
 
             positions_data = positions['result']['list']
 
-            # Verificar se há uma posição aberta
+            # Check if there is an open position
             for pos in positions_data:
                 size = float(pos['size'])
                 if size != 0:
@@ -225,16 +225,16 @@ def get_current_position(retries=3, backoff_factor=5):
                     entry_price = float(pos['avgPrice'])
                     return side, {'entry_price': entry_price, 'size': size, 'side': side}
                     
-            # Se não houver posição aberta, retornar False
+            # If no open position, return False
             return False, None
         
         except Exception as e:
-            logging.error(f"Erro inesperado no get_current_position: {e}")
+            logging.error(f"Unexpected error in get_current_position: {e}")
             logging.error(traceback.format_exc())
             attempt += 1
             time.sleep(backoff_factor * attempt)
 
-    logging.error("Falha ao obter posição atual após várias tentativas.")
+    logging.error("Failed to get current position after multiple attempts.")
     return False, None
 
 # Function to fetch the latest price
@@ -261,7 +261,7 @@ def get_account_balance():
             logging.error(f"Error fetching account balance: {balance_info['retMsg']}")
             return None
         
-        # Acessando o totalEquity corretamente na lista dentro de result
+        # Accessing totalEquity correctly within the list inside result
         total_equity = float(balance_info['result']['list'][0]['totalEquity'])
         return total_equity
     except Exception as e:
@@ -308,7 +308,7 @@ def log_trade_exit(trade_id, symbol, update_data, exit_lateral):
         df_trade_history = pd.read_csv(trade_history_file)
         mask = (df_trade_history['trade_id'] == trade_id) & (df_trade_history['symbol'] == symbol)
         if mask.any():
-            update_data['exit_lateral'] = exit_lateral  # Adiciona 'exit_lateral'
+            update_data['exit_lateral'] = exit_lateral  # Add 'exit_lateral'
             df_trade_history.loc[mask, update_data.keys()] = update_data.values()
             df_trade_history.to_csv(trade_history_file, index=False)
         else:
@@ -318,10 +318,10 @@ def log_trade_exit(trade_id, symbol, update_data, exit_lateral):
 
 def calculate_qty(total_equity, latest_price, leverage=1):
     try:
-        # Calcular o número de contratos
+        # Calculate the number of contracts
         qty = total_equity / latest_price
         factor = 100
-        # Ajustar para a precisão permitida pela Bybit (exemplo: 2 casas decimais)
+        # Adjust to the precision allowed by Bybit (e.g., 2 decimal places)
         qty = math.floor(qty * factor) / factor
         
         return qty
@@ -332,15 +332,15 @@ def calculate_qty(total_equity, latest_price, leverage=1):
 out_of_trade_logged = False
 in_trade_logged = False
 
-# Função para logar o status de entrada na posição
+# Function to log entry status
 def log_entry(side, entry_price, size, stop_gain, stop_loss):
-    logging.info(f"Entrou em posição {side} com tamanho {size} BTC a {entry_price}.")
-    logging.info(f"Stopgain definido em {stop_gain}, Stoploss definido em {stop_loss}.")
+    logging.info(f"Entered {side} position with size {size} BTC at {entry_price}.")
+    logging.info(f"Stopgain set at {stop_gain}, Stoploss set at {stop_loss}.")
 
-# Função para logar o status de saída da posição
+# Function to log exit status
 def log_exit(side, exit_price, size, outcome):
-    logging.info(f"Saindo da posição {side} com tamanho {size} BTC a {exit_price}.")
-    logging.info(f"Resultado da posição: {outcome}")
+    logging.info(f"Exiting {side} position with size {size} BTC at {exit_price}.")
+    logging.info(f"Position outcome: {outcome}")
 
 # Trading parameters
 stopgain_lateral_long = 1.11
@@ -367,13 +367,13 @@ current_secondary_stop_loss = None
 current_secondary_stop_gain = None
 previous_commission = 0  # To store commission from entry
 
-# Loop principal de trading
+# Main trading loop
 while True:
     try:
         current_time = datetime.utcnow()
-        # Verifique se é hora de atualizar os indicadores (a cada hora)
+        # Check if it's time to update indicators (every hour)
         if last_candle_time is None or (current_time - last_candle_time).seconds >= 3600:
-            # Obtenha os dados mais recentes de kline de 1 hora
+            # Get the latest 1-hour kline data
             df = get_historical_klines(symbol, interval=60, limit=200)
             if df is None or df.empty:
                 logging.error("Failed to fetch historical klines or received empty data.")
@@ -381,14 +381,14 @@ while True:
                 continue
             df = df.sort_values('timestamp')
 
-            # Calcule os indicadores
+            # Calculate indicators
             df = calculate_indicators(df, prev_emaShort, prev_emaLong)
             if df is None:
                 logging.error("Failed to calculate indicators.")
                 time.sleep(10)
                 continue
 
-            # Obtenha o último ponto de dados
+            # Get the last data point
             last_row = df.iloc[-1]
             adjusted_timestamp = last_row['timestamp']
             emaShort = df['emaShort']
@@ -401,11 +401,11 @@ while True:
             lowerBand = df['lowerBand']
             bandWidth = df['bandWidth']
 
-            # Atualize as EMAs anteriores para o próximo cálculo
-            prev_emaShort = emaShort[-1]
-            prev_emaLong = emaLong[-1]
+            # Update previous EMAs for the next calculation
+            prev_emaShort = emaShort.iloc[-1]
+            prev_emaLong = emaLong.iloc[-1]
 
-            # Salve os valores das EMAs no arquivo
+            # Save EMA values to the file
             ema_values = {'prev_emaShort': prev_emaShort, 'prev_emaLong': prev_emaLong}
             with open(ema_values_file, 'w') as f:
                 json.dump(ema_values, f)
@@ -594,7 +594,7 @@ while True:
                 elif (latest_price > upperBand.iloc[-1]) and shortCondition:
                     # Open short position
                     total_equity = get_account_balance()
-                    qty = calculate_qty(total_equity, latest_price) # Define your position size
+                    qty = calculate_qty(total_equity, latest_price)  # Define your position size
                     
                     try:
                         order = session.place_order(
@@ -1255,5 +1255,5 @@ while True:
     except Exception as e:
         logging.error(f"An unexpected error occurred: {e}")
         logging.error(traceback.format_exc())
-        time.sleep(5)  # Pausa breve antes de tentar novamente
+        time.sleep(5)  # Brief pause before retrying
         continue
