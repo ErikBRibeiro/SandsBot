@@ -53,19 +53,19 @@ if not os.path.isfile(trade_history_file):
     df_trade_history.to_csv(trade_history_file, index=False)
 
 # Path to the file that will store EMA values
-ema_values_file = 'ema_values.json'
+ema_values_file = '/app/data/ema_values.json'
 
 # Try to load EMA values from the file
 try:
     with open(ema_values_file, 'r') as f:
         ema_values = json.load(f)
-        prev_emaShort = ema_values.get('prev_emaShort', 63077.126)
-        prev_emaLong = ema_values.get('prev_emaLong', 62701.184)
+        prev_emaShort = ema_values.get('prev_emaShort', 63087.805)
+        prev_emaLong = ema_values.get('prev_emaLong', 62716.899)
         logging.info(f"Loaded previous EMA values from file: EMA Short = {prev_emaShort}, EMA Long = {prev_emaLong}")
 except FileNotFoundError:
     # If the file does not exist, use default values
-    prev_emaShort = 63077.126
-    prev_emaLong = 62701.184
+    prev_emaShort = 63087.805
+    prev_emaLong = 62716.899
     logging.info("EMA values file not found. Using default values.")
 
 # Function to calculate custom EMA
