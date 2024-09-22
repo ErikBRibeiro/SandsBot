@@ -134,9 +134,9 @@ def get_adx_manual(high, low, close, di_lookback, adx_smoothing):
 # Function to calculate indicators
 def calculate_indicators(df):
     try:
-        close_price = df['close'].values
-        high_price = df['high'].values
-        low_price = df['low'].values
+        close_price = df['close']
+        high_price = df['high']
+        low_price = df['low']
 
         # Parameters
         emaShortLength = 11
