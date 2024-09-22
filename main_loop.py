@@ -427,6 +427,7 @@ while True:
                         take_profit = entry_price * stopgain_normal_short
                 logging.info(f"Bot status: In a {side.lower()} position.")
                 logging.info(f"Current Stoploss: {stop_loss:.2f}, Take Profit: {take_profit:.2f}")
+                logging.info(f'DF INDICADORES /n{df}')
             last_log_time = current_time
 
         # Fetch the latest price every second
