@@ -94,6 +94,11 @@ def macd_func(series, fast_period, slow_period, signal_period):
     return macd_line, signal_line, macd_hist
 
 def get_adx_manual(high, low, close, di_lookback, adx_smoothing):
+    # Inverter os dados para processar do mais antigo para o mais recente
+    high = high.iloc[::-1].reset_index(drop=True)
+    low = low.iloc[::-1].reset_index(drop=True)
+    close = close.iloc[::-1].reset_index(drop=True)
+
     tr = []
     previous_close = close.iloc[0]
     plus_dm = []
@@ -128,6 +133,11 @@ def get_adx_manual(high, low, close, di_lookback, adx_smoothing):
 
     dx = (abs(plus_di - minus_di) / (plus_di + minus_di)) * 100
     adx = dx.ewm(alpha=1/adx_smoothing, adjust=False).mean()
+
+    # Reverter os resultados para a ordem original (do mais recente para o mais antigo)
+    plus_di = plus_di.iloc[::-1].reset_index(drop=True)
+    minus_di = minus_di.iloc[::-1].reset_index(drop=True)
+    adx = adx.iloc[::-1].reset_index(drop=True)
 
     return plus_di, minus_di, adx
 
