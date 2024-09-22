@@ -85,6 +85,52 @@ def get_historical_klines(symbol, interval, limit):
         logging.error(f"Exception in get_historical_klines: {e}")
         return None
 
+def macd_func(series, fast_period, slow_period, signal_period):
+    ema_fast = talib.EMA(series, fast_period)
+    ema_slow = talib.EMA(series, slow_period)
+    macd_line = ema_fast - ema_slow
+    signal_line = talib.EMA(macd_line, signal_period)
+    macd_hist = macd_line - signal_line
+    return macd_line, signal_line, macd_hist
+
+def get_adx_manual(high, low, close, di_lookback, adx_smoothing):
+    tr = []
+    previous_close = close.iloc[0]
+    plus_dm = []
+    minus_dm = []
+
+    for i in range(1, len(close)):
+        current_plus_dm = high.iloc[i] - high.iloc[i-1]
+        current_minus_dm = low.iloc[i-1] - low.iloc[i]
+        plus_dm.append(max(current_plus_dm, 0) if current_plus_dm > current_minus_dm else 0)
+        minus_dm.append(max(current_minus_dm, 0) if current_minus_dm > current_plus_dm else 0)
+
+        tr1 = high.iloc[i] - low.iloc[i]
+        tr2 = abs(high.iloc[i] - previous_close)
+        tr3 = abs(low.iloc[i] - previous_close)
+        true_range = max(tr1, tr2, tr3)
+        tr.append(true_range)
+
+        previous_close = close.iloc[i]
+
+    tr.insert(0, np.nan)
+    plus_dm.insert(0, np.nan)
+    minus_dm.insert(0, np.nan)
+
+    tr = pd.Series(tr)
+    plus_dm = pd.Series(plus_dm)
+    minus_dm = pd.Series(minus_dm)
+
+    atr = tr.rolling(window=di_lookback).mean()
+
+    plus_di = 100 * (plus_dm.ewm(alpha=1/di_lookback, adjust=False).mean() / atr)
+    minus_di = 100 * (minus_dm.ewm(alpha=1/di_lookback, adjust=False).mean() / atr)
+
+    dx = (abs(plus_di - minus_di) / (plus_di + minus_di)) * 100
+    adx = dx.ewm(alpha=1/adx_smoothing, adjust=False).mean()
+
+    return plus_di, minus_di, adx
+
 # Function to calculate indicators
 def calculate_indicators(df):
     try:
@@ -110,13 +156,12 @@ def calculate_indicators(df):
         emaShort = talib.EMA(close_price, emaShortLength)
         emaLong = talib.EMA(close_price, emaLongLength)
         rsi = talib.RSI(close_price, timeperiod=rsiLength)
-        macdLine, signalLine, macdHist = talib.MACD(
-            close_price, fastperiod=macdShort, slowperiod=macdLong, signalperiod=macdSignal
-        )
+        macdLine, signalLine, macdHist = macd_func(close_price, macdShort, macdLong, macdSignal)
         upperBand, middleBand, lowerBand = talib.BBANDS(
             close_price, timeperiod=bbLength, nbdevup=bbMultiplier, nbdevdn=bbMultiplier
         )
-        adx = talib.ADX(high_price, low_price, close_price, timeperiod=adxSmoothing)
+        plus_di, minus_di, adx = get_adx_manual(high_price, low_price, close_price, adxLength, adxSmoothing)
+        adx = adx.fillna(0).astype(int)
         bandWidth = (upperBand - lowerBand) / middleBand
         isLateral = bandWidth < lateralThreshold
 
