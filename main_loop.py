@@ -52,17 +52,17 @@ if not os.path.isfile(trade_history_file):
     df_trade_history.to_csv(trade_history_file, index=False)
 
 # Function to fetch historical kline data
-def get_historical_klines(symbol, interval, limit):
+def get_historical_klines_and_append(symbol, interval):
     try:
         now = datetime.utcnow()
-        from_time = now - timedelta(minutes=int(interval) * limit)
-        from_time_ms = int(from_time.timestamp() * 1000)
+        from_time = now - timedelta(minutes=int(interval))
+        from_time_ms = int(from_time.timestamp() * 1000)  # Corrected to milliseconds
         kline = session.get_kline(
             category='linear',
             symbol=symbol,
             interval=str(interval),
             start=str(from_time_ms),
-            limit=limit
+            limit=1  # Fetch only one candle
         )
         if kline['retMsg'] != 'OK':
             logging.error(f"Error fetching kline data: {kline['retMsg']}")
@@ -71,18 +71,20 @@ def get_historical_klines(symbol, interval, limit):
         df = pd.DataFrame(kline_data, columns=[
             'timestamp', 'open', 'high', 'low', 'close', 'volume', 'turnover'
         ])
-        # Ensure 'timestamp' is numeric before converting to datetime
+
         df['timestamp'] = pd.to_numeric(df['timestamp'], errors='coerce')
         df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
-        df['open'] = df['open'].astype(float)
-        df['high'] = df['high'].astype(float)
-        df['low'] = df['low'].astype(float)
-        df['close'] = df['close'].astype(float)
-        df['volume'] = df['volume'].astype(float)
-        df['turnover'] = df['turnover'].astype(float)
+        numeric_columns = ['open', 'high', 'low', 'close', 'volume', 'turnover']
+        df[numeric_columns] = df[numeric_columns].astype(float)
+
+        csv_file = 'dados_atualizados.csv'
+        if os.path.exists(csv_file):
+            df.to_csv(csv_file, mode='a', header=False, index=False)
+        else:
+            df.to_csv(csv_file, index=False)
         return df
     except Exception as e:
-        logging.error(f"Exception in get_historical_klines: {e}")
+        logging.error(f"Exception in get_historical_klines_and_append: {e}")
         return None
 
 def macd_func(series, fast_period, slow_period, signal_period):
@@ -384,7 +386,7 @@ while True:
         # Check if it's time to update the indicators (every hour)
         if last_candle_time is None or (current_time - last_candle_time).seconds >= 3600:
             # Fetch the latest 1-hour kline data
-            df = get_historical_klines(symbol, interval=60, limit=200)
+            df = get_historical_klines_and_append(symbol, interval=60)
             if df is None or df.empty:
                 logging.error("Failed to fetch historical klines or received empty data.")
                 time.sleep(10)
