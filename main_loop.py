@@ -47,7 +47,7 @@ if not os.path.isfile(trade_history_file):
     columns = ['trade_id', 'timestamp', 'symbol', 'buy_price', 'sell_price', 'quantity',
                'stop_loss', 'stop_gain', 'potential_loss', 'potential_gain', 'timeframe',
                'setup', 'outcome', 'commission', 'old_balance', 'new_balance',
-               'secondary_stop_loss', 'secondary_stop_gain', 'sell_time']
+               'secondary_stop_loss', 'secondary_stop_gain', 'sell_time', 'type', 'entry_lateral', 'exit_lateral']
     df_trade_history = pd.DataFrame(columns=columns)
     df_trade_history.to_csv(trade_history_file, index=False)
 
@@ -248,7 +248,6 @@ def get_current_position(retries=3, backoff_factor=5):
     return False, None
 
 
-
 # Function to fetch the latest price
 def get_latest_price():
     try:
@@ -321,7 +320,8 @@ def log_trade_exit(trade_id, symbol, update_data, exit_lateral):
         mask = (df_trade_history['trade_id'] == trade_id) & (df_trade_history['symbol'] == symbol)
         if mask.any():
             update_data['exit_lateral'] = exit_lateral  # Adiciona 'exit_lateral'
-            df_trade_history.loc[mask, update_data.keys()] = update_data.values()
+            for key, value in update_data.items():
+                df_trade_history.loc[mask, key] = value
             df_trade_history.to_csv(trade_history_file, index=False)
         else:
             logging.error("Trade not found in trade history for update.")
@@ -367,9 +367,9 @@ stoploss_normal_short = 1.12
 trade_count = 0  # Counter for the number of trades
 
 # Initialize variables
-last_candle_time = None  # To keep track of when to update indicators
-last_log_time = None     # To keep track of logging every 10 minutes
-previous_isLateral = None  # To detect transition into lateral market
+last_fetched_hour = None  # Para rastrear a última hora em que os klines foram buscados
+last_log_time = None     # Para manter o controle do log a cada 10 minutos
+previous_isLateral = None  # Para detectar transições para o mercado lateral
 
 # Variables to track current trade
 current_trade_id = None
@@ -377,15 +377,19 @@ current_position_side = None
 entry_price = None
 current_secondary_stop_loss = None
 current_secondary_stop_gain = None
-previous_commission = 0  # To store commission from entry
+previous_commission = 0  # Para armazenar a comissão da entrada
 
 # Main trading loop
 while True:
     try:
         current_time = datetime.utcnow()
-        # Check if it's time to update the indicators (every hour)
-        if last_candle_time is None or (current_time - last_candle_time).seconds >= 3600:
-            # Fetch the latest 1-hour kline data
+        current_hour = current_time.hour
+        current_minute = current_time.minute
+        current_second = current_time.second
+
+        # Verificar se é o momento de buscar os klines (segundo 1 de cada hora)
+        if current_minute == 0 and current_second == 1 and last_fetched_hour != current_hour:
+            # Buscar os últimos dados de kline de 1 hora
             df = get_historical_klines_and_append(symbol, interval=60)
             if df is None or df.empty:
                 logging.error("Failed to fetch historical klines or received empty data.")
@@ -393,14 +397,14 @@ while True:
                 continue
             df = df.sort_values('timestamp')
 
-            # Calculate indicators
+            # Calcular indicadores
             df = calculate_indicators(df)
             if df is None:
                 logging.error("Failed to calculate indicators.")
                 time.sleep(10)
                 continue
 
-            # Get the latest data point
+            # Obter a última linha do DataFrame para usar nos cálculos atuais
             last_row = df.iloc[-1]
             adjusted_timestamp = last_row['timestamp']
             emaShort = df['emaShort']
@@ -413,23 +417,23 @@ while True:
             lowerBand = df['lowerBand']
             bandWidth = df['bandWidth']
 
-            # Determine trending market
+            # Determinar se o mercado está em tendência
             trendingMarket = adx.iloc[-1] >= 12  # adxThreshold
 
-            # Detect transition into lateral market
+            # Detectar transição para mercado lateral ou de tendência
             if previous_isLateral is not None and isLateral.iloc[-1] != previous_isLateral:
                 if isLateral.iloc[-1]:
-                    # Entered lateral market
+                    # Entrou no mercado lateral
                     logging.info("Entered lateral market. Stopgain and Stoploss levels adjusted.")
                     logging.info(f"Stopgain and Stoploss levels for lateral market - Long: Stopgain {stopgain_lateral_long}, Stoploss {stoploss_lateral_long}; Short: Stopgain {stopgain_lateral_short}, Stoploss {stoploss_lateral_short}")
                 else:
-                    # Exited lateral market
+                    # Saiu do mercado lateral
                     logging.info("Exited lateral market. Stopgain and Stoploss levels adjusted.")
                     logging.info(f"Stopgain and Stoploss levels for trending market - Long: Stopgain {stopgain_normal_long}, Stoploss {stoploss_normal_long}; Short: Stopgain {stopgain_normal_short}, Stoploss {stoploss_normal_short}")
-                # Update secondary stop_loss and stop_gain if there is an open position
+                # Atualizar stop_loss e stop_gain secundários se houver uma posição aberta
                 if current_trade_id is not None:
                     if isLateral.iloc[-1]:
-                        # Now in lateral market
+                        # Agora está no mercado lateral
                         if current_position_side == 'buy':
                             current_secondary_stop_loss = entry_price * stoploss_lateral_long
                             current_secondary_stop_gain = entry_price * stopgain_lateral_long
@@ -437,14 +441,14 @@ while True:
                             current_secondary_stop_loss = entry_price * stoploss_lateral_short
                             current_secondary_stop_gain = entry_price * stopgain_lateral_short
                     else:
-                        # Now in trending market
+                        # Agora está no mercado de tendência
                         if current_position_side == 'buy':
                             current_secondary_stop_loss = entry_price * stoploss_normal_long
                             current_secondary_stop_gain = entry_price * stopgain_normal_long
                         elif current_position_side == 'sell':
                             current_secondary_stop_loss = entry_price * stoploss_normal_short
                             current_secondary_stop_gain = entry_price * stopgain_normal_short
-                    # Update the CSV
+                    # Atualizar o CSV
                     update_data = {
                         'secondary_stop_loss': current_secondary_stop_loss,
                         'secondary_stop_gain': current_secondary_stop_gain
@@ -453,12 +457,12 @@ while True:
 
             previous_isLateral = isLateral.iloc[-1]
 
-            # Update last_candle_time
-            last_candle_time = current_time
+            # Atualizar a última hora de busca
+            last_fetched_hour = current_hour
 
             logging.info(f"Indicators updated at {current_time}")
 
-        # Log bot status every 10 minutes
+        # Logar o status do bot a cada 10 minutos
         if last_log_time is None or (current_time - last_log_time).total_seconds() >= 600:
             current_position, position_info = get_current_position()
             if current_position is None:
@@ -495,8 +499,8 @@ while True:
             time.sleep(5)
             continue
 
-        # Implement real-time entry and exit logic based on latest_price and indicators
-        # Long and Short conditions
+        # Implementar lógica de entrada e saída em tempo real baseada no latest_price e indicadores
+        # Condições de Long e Short
         longCondition = (
             crossover(emaShort, emaLong).iloc[-1]
             and (rsi.iloc[-1] < 60)
@@ -510,22 +514,21 @@ while True:
             and trendingMarket
         )
 
-        # Get current position
+        # Obter posição atual
         current_position, position_info = get_current_position()
         if current_position is None:
             logging.info("Failed to fetch current position.")
             time.sleep(5)
             continue
 
-        # Implement trading logic
+        # Implementar lógica de trading
         if not current_position:
-
             if isLateral.iloc[-1]:
-                # Mean Reversion Strategy in Lateral Market
+                # Estratégia de Reversão à Média no Mercado Lateral
                 if (latest_price < lowerBand.iloc[-1]) and longCondition:
-                    # Open long position
+                    # Abrir posição long
                     total_equity = get_account_balance()
-                    qty = calculate_qty(total_equity, latest_price)  # Define your position size
+                    qty = calculate_qty(total_equity, latest_price)  # Defina seu tamanho de posição
                     
                     try:
                         order = session.place_order(
@@ -553,7 +556,7 @@ while True:
                     old_balance = get_account_balance()
                     if old_balance is None:
                         logging.error("Failed to fetch account balance.")
-                        old_balance = 0  # Set to zero to avoid calculation errors
+                        old_balance = 0  # Defina como zero para evitar erros de cálculo
                     entry_price = latest_price
                     stop_loss = entry_price * stoploss_lateral_long
                     stop_gain = entry_price * stopgain_lateral_long
@@ -561,7 +564,7 @@ while True:
                     secondary_stop_gain = stop_gain
                     current_secondary_stop_loss = secondary_stop_loss
                     current_secondary_stop_gain = secondary_stop_gain
-                    commission_rate = 0.0006  # 0.03%
+                    commission_rate = 0.0006  # 0.06%
                     commission = entry_price * qty * commission_rate
                     previous_commission = commission
                     potential_loss = ((entry_price - stop_loss) * qty) / old_balance * 100 if old_balance > 0 else 0
@@ -596,9 +599,9 @@ while True:
                     logging.info(f"Stoploss set at {stop_loss:.2f}, Take Profit set at {stop_gain:.2f}")
                     trade_count += 1
                 elif (latest_price > upperBand.iloc[-1]) and shortCondition:
-                    # Open short position
+                    # Abrir posição short
                     total_equity = get_account_balance()
-                    qty = calculate_qty(total_equity, latest_price) # Define your position size
+                    qty = calculate_qty(total_equity, latest_price)  # Defina seu tamanho de posição
                     
                     try:
                         order = session.place_order(
@@ -626,7 +629,7 @@ while True:
                     old_balance = get_account_balance()
                     if old_balance is None:
                         logging.error("Failed to fetch account balance.")
-                        old_balance = 0  # Set to zero to avoid calculation errors
+                        old_balance = 0  # Defina como zero para evitar erros de cálculo
                     entry_price = latest_price
                     stop_loss = entry_price * stoploss_lateral_short
                     stop_gain = entry_price * stopgain_lateral_short
@@ -634,7 +637,7 @@ while True:
                     secondary_stop_gain = stop_gain
                     current_secondary_stop_loss = secondary_stop_loss
                     current_secondary_stop_gain = secondary_stop_gain
-                    commission_rate = 0.0006  # 0.03%
+                    commission_rate = 0.0006  # 0.06%
                     commission = entry_price * qty * commission_rate
                     previous_commission = commission
                     potential_loss = ((stop_loss - entry_price) * qty) / old_balance * 100 if old_balance > 0 else 0
@@ -664,12 +667,16 @@ while True:
                         'exit_lateral': ''  # Inicialmente vazio
                     }
 
+                    log_trade_entry(trade_data)
+                    logging.info(f"Entered short position at {trade_id}, price: {entry_price}")
+                    logging.info(f"Stoploss set at {stop_loss:.2f}, Take Profit set at {stop_gain:.2f}")
+                    trade_count += 1
             else:
-                # Trend Following Strategy in Trending Market
+                # Estratégia de Seguimento de Tendência no Mercado em Tendência
                 if longCondition:
-                    # Open long position
+                    # Abrir posição long
                     total_equity = get_account_balance()
-                    qty = calculate_qty(total_equity, latest_price)  # Define your position size
+                    qty = calculate_qty(total_equity, latest_price)  # Defina seu tamanho de posição
                     
                     try:
                         order = session.place_order(
@@ -697,7 +704,7 @@ while True:
                     old_balance = get_account_balance()
                     if old_balance is None:
                         logging.error("Failed to fetch account balance.")
-                        old_balance = 0  # Set to zero to avoid calculation errors
+                        old_balance = 0  # Defina como zero para evitar erros de cálculo
                     entry_price = latest_price
                     stop_loss = entry_price * stoploss_normal_long
                     stop_gain = entry_price * stopgain_normal_long
@@ -739,9 +746,9 @@ while True:
                     logging.info(f"Stoploss set at {stop_loss:.2f}, Take Profit set at {stop_gain:.2f}")
                     trade_count += 1
                 elif shortCondition:
-                    # Open short position
+                    # Abrir posição short
                     total_equity = get_account_balance()
-                    qty = calculate_qty(total_equity, latest_price)  # Define your position size
+                    qty = calculate_qty(total_equity, latest_price)  # Defina seu tamanho de posição
                     
                     try:
                         order = session.place_order(
@@ -769,7 +776,7 @@ while True:
                     old_balance = get_account_balance()
                     if old_balance is None:
                         logging.error("Failed to fetch account balance.")
-                        old_balance = 0  # Set to zero to avoid calculation errors
+                        old_balance = 0  # Defina como zero para evitar erros de cálculo
                     entry_price = latest_price
                     stop_loss = entry_price * stoploss_normal_short
                     stop_gain = entry_price * stopgain_normal_short
@@ -812,20 +819,19 @@ while True:
                     logging.info(f"Stoploss set at {stop_loss:.2f}, Take Profit set at {stop_gain:.2f}")
                     trade_count += 1
         else:
-            # Manage open position
+            # Gerenciar posição aberta
             side = position_info['side']
             entry_price = position_info['entry_price']
             size = position_info['size']
-            commission_rate = 0.0006  # 0.03%
+            commission_rate = 0.0006  # 0.06%
             if isLateral.iloc[-1]:
-                # Lateral market exit conditions
+                # Condições de saída no mercado lateral
                 if side == 'buy':
-                    # Long position
+                    # Posição long
                     stop_loss = entry_price * stoploss_lateral_long
                     take_profit = entry_price * stopgain_lateral_long
                     if latest_price <= stop_loss or shortCondition:
-                        # Close position at stop loss or reversal
-                        
+                        # Fechar posição por stop loss ou reversão
                         try:
                             order = session.place_order(
                                 category='linear',
@@ -855,8 +861,8 @@ while True:
                         commission = sell_price * size * commission_rate
                         total_commission = previous_commission + commission
                         outcome = (sell_price - entry_price) * size - total_commission
-                        # Ao fechar uma posição short por stop loss ou reversão:
-                        exit_lateral = 1 if isLateral.iloc[-1] else 0  # Define exit_lateral
+                        # Definir exit_lateral
+                        exit_lateral = 1 if isLateral.iloc[-1] else 0
                         update_data = {
                             'sell_price': sell_price,
                             'new_balance': new_balance,
@@ -868,7 +874,7 @@ while True:
                         }
                         log_trade_exit(current_trade_id, symbol, update_data, exit_lateral)
                         logging.info(f"Exited long position at {sell_time}, price: {sell_price}")
-                        # Reset tracking variables
+                        # Resetar variáveis de rastreamento
                         current_trade_id = None
                         current_position_side = None
                         entry_price = None
@@ -876,8 +882,7 @@ while True:
                         current_secondary_stop_gain = None
                         previous_commission = 0
                     elif latest_price >= take_profit:
-                        # Close position at take profit
-                        
+                        # Fechar posição por take profit
                         try:
                             order = session.place_order(
                                 category='linear',
@@ -907,8 +912,8 @@ while True:
                         commission = sell_price * size * commission_rate
                         total_commission = previous_commission + commission
                         outcome = (sell_price - entry_price) * size - total_commission
-                        # Ao fechar uma posição long por stop loss ou reversão:
-                        exit_lateral = 1 if isLateral.iloc[-1] else 0  # Define exit_lateral
+                        # Definir exit_lateral
+                        exit_lateral = 1 if isLateral.iloc[-1] else 0
                         update_data = {
                             'sell_price': sell_price,
                             'new_balance': new_balance,
@@ -920,7 +925,7 @@ while True:
                         }
                         log_trade_exit(current_trade_id, symbol, update_data, exit_lateral)
                         logging.info(f"Exited long position at {sell_time}, price: {sell_price}")
-                        # Reset tracking variables
+                        # Resetar variáveis de rastreamento
                         current_trade_id = None
                         current_position_side = None
                         entry_price = None
@@ -928,12 +933,11 @@ while True:
                         current_secondary_stop_gain = None
                         previous_commission = 0
                 elif side == 'sell':
-                    # Short position
+                    # Posição short
                     stop_loss = entry_price * stoploss_lateral_short
                     take_profit = entry_price * stopgain_lateral_short
                     if latest_price >= stop_loss or longCondition:
-                        # Close position at stop loss or reversal
-                        
+                        # Fechar posição por stop loss ou reversão
                         try:
                             order = session.place_order(
                                 category='linear',
@@ -963,8 +967,8 @@ while True:
                         commission = sell_price * size * commission_rate
                         total_commission = previous_commission + commission
                         outcome = (entry_price - sell_price) * size - total_commission
-                        # Ao fechar uma posição short por stop loss ou reversão:
-                        exit_lateral = 1 if isLateral.iloc[-1] else 0  # Define exit_lateral
+                        # Definir exit_lateral
+                        exit_lateral = 1 if isLateral.iloc[-1] else 0
                         update_data = {
                             'sell_price': sell_price,
                             'new_balance': new_balance,
@@ -975,9 +979,8 @@ while True:
                             'secondary_stop_gain': current_secondary_stop_gain
                         }
                         log_trade_exit(current_trade_id, symbol, update_data, exit_lateral)
-
                         logging.info(f"Exited short position at {sell_time}, price: {sell_price}")
-                        # Reset tracking variables
+                        # Resetar variáveis de rastreamento
                         current_trade_id = None
                         current_position_side = None
                         entry_price = None
@@ -985,8 +988,7 @@ while True:
                         current_secondary_stop_gain = None
                         previous_commission = 0
                     elif latest_price <= take_profit:
-                        # Close position at take profit
-                        
+                        # Fechar posição por take profit
                         try:
                             order = session.place_order(
                                 category='linear',
@@ -1016,8 +1018,8 @@ while True:
                         commission = sell_price * size * commission_rate
                         total_commission = previous_commission + commission
                         outcome = (entry_price - sell_price) * size - total_commission
-                        # Ao fechar uma posição short por stop loss ou reversão:
-                        exit_lateral = 1 if isLateral.iloc[-1] else 0  # Define exit_lateral
+                        # Definir exit_lateral
+                        exit_lateral = 1 if isLateral.iloc[-1] else 0
                         update_data = {
                             'sell_price': sell_price,
                             'new_balance': new_balance,
@@ -1028,9 +1030,8 @@ while True:
                             'secondary_stop_gain': current_secondary_stop_gain
                         }
                         log_trade_exit(current_trade_id, symbol, update_data, exit_lateral)
-
                         logging.info(f"Exited short position at {sell_time}, price: {sell_price}")
-                        # Reset tracking variables
+                        # Resetar variáveis de rastreamento
                         current_trade_id = None
                         current_position_side = None
                         entry_price = None
@@ -1038,14 +1039,13 @@ while True:
                         current_secondary_stop_gain = None
                         previous_commission = 0
             else:
-                # Trending market exit conditions
+                # Condições de saída no mercado de tendência
                 if side == 'buy':
-                    # Long position
+                    # Posição long
                     stop_loss = entry_price * stoploss_normal_long
                     take_profit = entry_price * stopgain_normal_long
                     if latest_price <= stop_loss or shortCondition:
-                        # Close position at stop loss or reversal
-                        
+                        # Fechar posição por stop loss ou reversão
                         try:
                             order = session.place_order(
                                 category='linear',
@@ -1075,8 +1075,8 @@ while True:
                         commission = sell_price * size * commission_rate
                         total_commission = previous_commission + commission
                         outcome = (sell_price - entry_price) * size - total_commission
-                        # Ao fechar uma posição long por stop loss ou reversão:
-                        exit_lateral = 1 if isLateral.iloc[-1] else 0  # Define exit_lateral
+                        # Definir exit_lateral
+                        exit_lateral = 1 if isLateral.iloc[-1] else 0
                         update_data = {
                             'sell_price': sell_price,
                             'new_balance': new_balance,
@@ -1087,9 +1087,8 @@ while True:
                             'secondary_stop_gain': current_secondary_stop_gain
                         }
                         log_trade_exit(current_trade_id, symbol, update_data, exit_lateral)
-
                         logging.info(f"Exited long position at {sell_time}, price: {sell_price}")
-                        # Reset tracking variables
+                        # Resetar variáveis de rastreamento
                         current_trade_id = None
                         current_position_side = None
                         entry_price = None
@@ -1097,8 +1096,7 @@ while True:
                         current_secondary_stop_gain = None
                         previous_commission = 0
                     elif latest_price >= take_profit:
-                        # Close position at take profit
-                        
+                        # Fechar posição por take profit
                         try:
                             order = session.place_order(
                                 category='linear',
@@ -1128,8 +1126,8 @@ while True:
                         commission = sell_price * size * commission_rate
                         total_commission = previous_commission + commission
                         outcome = (sell_price - entry_price) * size - total_commission
-                        # Ao fechar uma posição long por stop loss ou reversão:
-                        exit_lateral = 1 if isLateral.iloc[-1] else 0  # Define exit_lateral
+                        # Definir exit_lateral
+                        exit_lateral = 1 if isLateral.iloc[-1] else 0
                         update_data = {
                             'sell_price': sell_price,
                             'new_balance': new_balance,
@@ -1140,9 +1138,8 @@ while True:
                             'secondary_stop_gain': current_secondary_stop_gain
                         }
                         log_trade_exit(current_trade_id, symbol, update_data, exit_lateral)
-
                         logging.info(f"Exited long position at {sell_time}, price: {sell_price}")
-                        # Reset tracking variables
+                        # Resetar variáveis de rastreamento
                         current_trade_id = None
                         current_position_side = None
                         entry_price = None
@@ -1150,12 +1147,11 @@ while True:
                         current_secondary_stop_gain = None
                         previous_commission = 0
                 elif side == 'sell':
-                    # Short position
+                    # Posição short
                     stop_loss = entry_price * stoploss_normal_short
                     take_profit = entry_price * stopgain_normal_short
                     if latest_price >= stop_loss or longCondition:
-                        # Close position at stop loss or reversal
-                        
+                        # Fechar posição por stop loss ou reversão
                         try:
                             order = session.place_order(
                                 category='linear',
@@ -1185,8 +1181,8 @@ while True:
                         commission = sell_price * size * commission_rate
                         total_commission = previous_commission + commission
                         outcome = (entry_price - sell_price) * size - total_commission
-                        # Ao fechar uma posição short por stop loss ou reversão:
-                        exit_lateral = 1 if isLateral.iloc[-1] else 0  # Define exit_lateral
+                        # Definir exit_lateral
+                        exit_lateral = 1 if isLateral.iloc[-1] else 0
                         update_data = {
                             'sell_price': sell_price,
                             'new_balance': new_balance,
@@ -1198,7 +1194,7 @@ while True:
                         }
                         log_trade_exit(current_trade_id, symbol, update_data, exit_lateral)
                         logging.info(f"Exited short position at {sell_time}, price: {sell_price}")
-                        # Reset tracking variables
+                        # Resetar variáveis de rastreamento
                         current_trade_id = None
                         current_position_side = None
                         entry_price = None
@@ -1206,8 +1202,7 @@ while True:
                         current_secondary_stop_gain = None
                         previous_commission = 0
                     elif latest_price <= take_profit:
-                        # Close position at take profit
-                        
+                        # Fechar posição por take profit
                         try:
                             order = session.place_order(
                                 category='linear',
@@ -1237,8 +1232,8 @@ while True:
                         commission = sell_price * size * commission_rate
                         total_commission = previous_commission + commission
                         outcome = (entry_price - sell_price) * size - total_commission
-                        # Ao fechar uma posição short por stop loss ou reversão:
-                        exit_lateral = 1 if isLateral.iloc[-1] else 0  # Define exit_lateral
+                        # Definir exit_lateral
+                        exit_lateral = 1 if isLateral.iloc[-1] else 0
                         update_data = {
                             'sell_price': sell_price,
                             'new_balance': new_balance,
@@ -1250,7 +1245,7 @@ while True:
                         }
                         log_trade_exit(current_trade_id, symbol, update_data, exit_lateral)
                         logging.info(f"Exited short position at {sell_time}, price: {sell_price}")
-                        # Reset tracking variables
+                        # Resetar variáveis de rastreamento
                         current_trade_id = None
                         current_position_side = None
                         entry_price = None
@@ -1258,7 +1253,7 @@ while True:
                         current_secondary_stop_gain = None
                         previous_commission = 0
 
-        # Wait for 1 second before next price check
+        # Espera de 1 segundo antes da próxima verificação
         time.sleep(1)
 
     except KeyboardInterrupt:
