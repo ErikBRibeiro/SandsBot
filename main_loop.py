@@ -379,22 +379,6 @@ current_secondary_stop_loss = None
 current_secondary_stop_gain = None
 previous_commission = 0  # Para armazenar a comissão da entrada
 
-
-# Inicializar variáveis de indicadores antes do loop
-emaShort = None
-emaLong = None
-rsi = None
-macdHist = None
-adx = None
-isLateral = None
-upperBand = None
-lowerBand = None
-bandWidth = None
-trendingMarket = False
-
-# Inicializar variável para controlar se os indicadores estão prontos
-indicators_ready = False
-
 # Main trading loop
 while True:
     try:
