@@ -63,10 +63,14 @@ def get_previous_candle_start(dt, interval_minutes):
         datetime: Data e hora do início do candle anterior.
     """
     interval = timedelta(minutes=interval_minutes)
-    # Trunca o tempo atual para o início do candle atual
-    truncated_time = dt - (dt - datetime.min) % interval
+    # Calcula o início do candle atual
+    current_candle_start = dt - timedelta(
+        minutes=dt.minute % interval_minutes,
+        seconds=dt.second,
+        microseconds=dt.microsecond
+    )
     # Calcula o início do candle anterior
-    previous_candle_start = truncated_time - interval
+    previous_candle_start = current_candle_start - interval
     return previous_candle_start
 
 def get_historical_klines_and_append(symbol, interval):
