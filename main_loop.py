@@ -280,6 +280,7 @@ def calculate_indicators():
         # Map indicators to DataFrame columns
         df['emaShort'] = emaShort
         df['emaLong'] = emaLong
+        df['adx'] = adx
         df['rsi'] = rsi
         df['macdLine'] = macdLine
         df['signalLine'] = signalLine
