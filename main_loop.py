@@ -91,7 +91,7 @@ def get_historical_klines_and_append(symbol, interval):
         'emaShort', 'emaLong',
         'adx', 'adxPlus ', 'adxMinus',
         'rsi', 'macdLine', 'signalLine',
-        'macdHist', 'bandWidth'
+        'macdHist', 'bandWidth', 'isLateral'
     ]
 
     try:
@@ -158,13 +158,6 @@ def get_historical_klines_and_append(symbol, interval):
         new_row['low'] = float(kline_data[3])
         new_row['close'] = float(kline_data[4])
 
-        # Se existir, adicione volume e turnover (ajuste conforme necessário)
-        # Se o CSV não tiver essas colunas, ignore
-        # new_row['volume'] = float(kline_data[5]) if len(kline_data) > 5 else float('nan')
-        # new_row['turnover'] = float(kline_data[6]) if len(kline_data) > 6 else float('nan')
-
-        logging.debug(f"New row data: {new_row}")
-
         # Cria o DataFrame com a nova linha
         df_new = pd.DataFrame([new_row], columns=csv_columns)
 
@@ -189,8 +182,6 @@ def get_historical_klines_and_append(symbol, interval):
         logging.error(f"Exception in get_historical_klines_and_append: {e}")
         logging.error(traceback.format_exc())
         return None
-
-
 
 def macd_func(series, fast_period, slow_period, signal_period):
     ema_fast = talib.EMA(series, fast_period)
@@ -248,6 +239,22 @@ def get_adx_manual(high, low, close, di_lookback, adx_smoothing):
 
     return adx
 
+def ensure_isLateral_boolean(df):
+    """
+    Checks if the 'isLateral' column in the DataFrame is of boolean type.
+    If not, converts it to boolean, where 1 becomes True and 0 becomes False.
+
+    Args:
+        df (pd.DataFrame): The DataFrame to check and modify.
+
+    Returns:
+        pd.DataFrame: The modified DataFrame with 'isLateral' as boolean type.
+    """
+    if df['isLateral'].dtype != 'bool':
+        # Convert values: 1 to True, others to False
+        df['isLateral'] = df['isLateral'] == 1
+    return df
+
 # Function to calculate indicators
 def calculate_indicators(df):
     """
@@ -301,8 +308,10 @@ def calculate_indicators(df):
         df['middleBand'] = middleBand
         df['lowerBand'] = lowerBand
         df['bandWidth'] = bandWidth
-        # 'isLateral' não está presente no CSV. Se desejar adicioná-la, descomente a linha abaixo e adicione a coluna no CSV.
-        # df['isLateral'] = isLateral
+        df['isLateral'] = isLateral.astype(bool)  # Ensure 'isLateral' is boolean
+
+        # Ensure 'isLateral' is boolean
+        df = ensure_isLateral_boolean(df)
 
         # Definir o caminho do arquivo CSV
         csv_file = '/app/data/dados_atualizados.csv'
@@ -328,7 +337,7 @@ def calculate_indicators(df):
         indicator_columns = [
             'emaShort', 'emaLong', 'rsi', 'macdHist',
             'adx', 'upperBand', 'middleBand',
-            'lowerBand', 'bandWidth'
+            'lowerBand', 'bandWidth', 'isLateral'
         ]
 
         # Atualizar as colunas de indicadores na última linha do CSV
@@ -374,7 +383,7 @@ def get_current_position(retries=3, backoff_factor=5):
                 category='linear',  # linear para contratos perpétuos
                 symbol=symbol       # par de símbolos como BTCUSDT
             )
-            
+
             # Verificar se a resposta foi bem-sucedida
             if positions['retMsg'] != 'OK':
                 return None, None
@@ -388,10 +397,10 @@ def get_current_position(retries=3, backoff_factor=5):
                     side = (pos['side']).lower()
                     entry_price = float(pos['avgPrice'])
                     return side, {'entry_price': entry_price, 'size': size, 'side': side}
-                    
+
             # Se não houver posição aberta, retornar False
             return False, None
-        
+
         except Exception as e:
             logging.error(f"Erro inesperado no get_current_position: {e}")
             logging.error(traceback.format_exc())
@@ -400,7 +409,6 @@ def get_current_position(retries=3, backoff_factor=5):
 
     logging.error("Falha ao obter posição atual após várias tentativas.")
     return False, None
-
 
 # Function to fetch the latest price
 def get_latest_price():
@@ -425,7 +433,7 @@ def get_account_balance():
         if balance_info['retMsg'] != 'OK':
             logging.error(f"Error fetching account balance: {balance_info['retMsg']}")
             return None
-        
+
         # Acessando o totalEquity corretamente na lista dentro de result
         total_equity = float(balance_info['result']['list'][0]['totalEquity'])
         return total_equity
@@ -489,12 +497,12 @@ def calculate_qty(total_equity, latest_price, leverage=1):
         factor = 100
         # Ajustar para a precisão permitida pela Bybit (exemplo: 2 casas decimais)
         qty = math.floor(qty * factor) / factor
-        
+
         return qty
     except Exception as e:
         logging.error(f"Exception in calculate_qty: {e}")
         return None
-    
+
 out_of_trade_logged = False
 in_trade_logged = False
 
@@ -557,6 +565,9 @@ while True:
                 logging.error("Failed to calculate indicators.")
                 time.sleep(10)
                 continue
+
+            # Ensure 'isLateral' is boolean
+            df = ensure_isLateral_boolean(df)
 
             # Obter a última linha do DataFrame para usar nos cálculos atuais
             last_row = df.iloc[-1]
@@ -643,7 +654,7 @@ while True:
                 logging.info(f"Bot status: In a {side.lower()} position.")
                 logging.info(f"Current Stoploss: {stop_loss:.2f}, Take Profit: {take_profit:.2f}")
                 pd.set_option('display.max_columns', None)
-                logging.info(f'DF INDICADORES /n{df}')
+                logging.info(f'DF INDICADORES \n{df}')
             last_log_time = current_time
 
         # Fetch the latest price every second
@@ -683,7 +694,7 @@ while True:
                     # Abrir posição long
                     total_equity = get_account_balance()
                     qty = calculate_qty(total_equity, latest_price)  # Defina seu tamanho de posição
-                    
+
                     try:
                         order = session.place_order(
                             category='linear',
@@ -703,7 +714,7 @@ while True:
                         logging.error(f"Exception placing buy order: {e}")
                         time.sleep(5)
                         continue
-                    
+
                     trade_id = datetime.utcnow().isoformat()
                     current_trade_id = trade_id
                     current_position_side = 'buy'
@@ -756,7 +767,7 @@ while True:
                     # Abrir posição short
                     total_equity = get_account_balance()
                     qty = calculate_qty(total_equity, latest_price)  # Defina seu tamanho de posição
-                    
+
                     try:
                         order = session.place_order(
                             category='linear',
@@ -776,7 +787,7 @@ while True:
                         logging.error(f"Exception placing sell order: {e}")
                         time.sleep(5)
                         continue
-                    
+
                     trade_id = datetime.utcnow().isoformat()
                     current_trade_id = trade_id
                     current_position_side = 'sell'
@@ -831,7 +842,7 @@ while True:
                     # Abrir posição long
                     total_equity = get_account_balance()
                     qty = calculate_qty(total_equity, latest_price)  # Defina seu tamanho de posição
-                    
+
                     try:
                         order = session.place_order(
                             category='linear',
@@ -851,7 +862,7 @@ while True:
                         logging.error(f"Exception placing buy order: {e}")
                         time.sleep(5)
                         continue
-                    
+
                     trade_id = datetime.utcnow().isoformat()
                     current_trade_id = trade_id
                     current_position_side = 'buy'
@@ -903,7 +914,7 @@ while True:
                     # Abrir posição short
                     total_equity = get_account_balance()
                     qty = calculate_qty(total_equity, latest_price)  # Defina seu tamanho de posição
-                    
+
                     try:
                         order = session.place_order(
                             category='linear',
@@ -923,7 +934,7 @@ while True:
                         logging.error(f"Exception placing sell order: {e}")
                         time.sleep(5)
                         continue
-                    
+
                     trade_id = datetime.utcnow().isoformat()
                     current_trade_id = trade_id
                     current_position_side = 'sell'
