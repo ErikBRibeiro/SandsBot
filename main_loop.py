@@ -501,12 +501,6 @@ stopgain_normal_short = 0.77
 stoploss_normal_short = 1.12
 
 trade_count = 0  # Counter for the number of trades
-
-# Initialize variables
-last_fetched_hour = None  # To track the last hour when klines were fetched
-last_log_time = None     # To keep track of logging every 10 minutes
-previous_isLateral = None  # To detect transitions to lateral market
-
 # Variables to track current trade
 current_trade_id = None
 current_position_side = None
@@ -515,15 +509,16 @@ current_secondary_stop_loss = None
 current_secondary_stop_gain = None
 previous_commission = 0  # To store the entry commission
 
+# Initialize variables
+last_fetched_hour = None  # To track the last hour when klines were fetched
+last_log_time = None     # To keep track of logging every 10 minutes
+previous_isLateral = None  # To detect transitions to lateral market
+
 # Main trading loop
 while True:
     try:
         current_time = datetime.utcnow()
         current_hour = current_time.hour
-        current_minute = current_time.minute
-        current_second = current_time.second
-
-
 
         # Load the indicators and data
         df = pd.read_csv('/app/data/dados_atualizados.csv')
@@ -543,7 +538,10 @@ while True:
         lowerBand = df['lowerBand']
         bandWidth = df['bandWidth']
 
-                # Check if it's time to fetch klines (e.g., at the beginning of each hour)
+        # Determine if the market is trending
+        trendingMarket = adx.iloc[-1] >= 12  # adxThreshold
+
+        # Check if it's time to fetch klines (once per hour)
         if last_fetched_hour != current_hour:
             # Fetch the latest 1-hour kline data
             df_new_row = get_historical_klines_and_append(symbol, interval=60)
@@ -554,49 +552,13 @@ while True:
 
             # Calculate indicators
             df = calculate_indicators()
-            logging.info(df)
             if df is None:
                 logging.error("Failed to calculate indicators.")
                 time.sleep(10)
                 continue
-
-        # Re-assign the variables after updating indicators
-        df = df.sort_values('time').reset_index(drop=True)
-        last_row = df.iloc[-1]
-        adjusted_timestamp = last_row['time']
-        emaShort = df['emaShort']
-        emaLong = df['emaLong']
-        rsi = df['rsi']
-        macdHist = df['macdHist']
-        adx = df['adx']
-        isLateral = df['isLateral']
-        upperBand = df['upperBand']
-        lowerBand = df['lowerBand']
-        bandWidth = df['bandWidth']
-
-        # Determine if the market is trending
-        trendingMarket = adx.iloc[-1] >= 12  # adxThreshold
-
-        # Check if it's time to fetch klines (e.g., at the beginning of each hour)
-        if last_fetched_hour != current_hour and current_minute == 0 and current_second <= 5:
-            # Fetch the latest 1-hour kline data
-            df_new_row = get_historical_klines_and_append(symbol, interval=60)
-            if df_new_row is None or df_new_row.empty:
-                logging.error("Failed to fetch historical klines or received empty data.")
-                time.sleep(10)
-                continue
-
-            # Calculate indicators
-            df = calculate_indicators()
-            if df is None:
-                logging.error("Failed to calculate indicators.")
-                time.sleep(10)
-                continue
-
-            # Ensure 'isLateral' is boolean
-            df = ensure_isLateral_boolean(df)
 
             # Re-assign the variables after updating indicators
+            df = df.sort_values('time').reset_index(drop=True)
             last_row = df.iloc[-1]
             adjusted_timestamp = last_row['time']
             emaShort = df['emaShort']
@@ -609,11 +571,15 @@ while True:
             lowerBand = df['lowerBand']
             bandWidth = df['bandWidth']
 
+            # Ensure 'isLateral' is boolean
+            df = ensure_isLateral_boolean(df)
+
             # Determine if the market is trending
             trendingMarket = adx.iloc[-1] >= 12  # adxThreshold
 
             # Detect transition to lateral or trending market
             if previous_isLateral is not None and isLateral.iloc[-1] != previous_isLateral:
+                # Handle market condition transitions
                 if isLateral.iloc[-1]:
                     # Entered lateral market
                     logging.info("Entered lateral market. Stopgain and Stoploss levels adjusted.")
