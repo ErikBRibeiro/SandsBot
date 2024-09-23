@@ -342,16 +342,21 @@ def ensure_isLateral_boolean(df):
     """
     Checks if the 'isLateral' column in the DataFrame is of boolean type.
     If not, converts it to boolean, where 1 becomes True and 0 becomes False.
-
+    Then saves the updated DataFrame to '/app/data/dados_atualizados.csv'.
+    
     Args:
         df (pd.DataFrame): The DataFrame to check and modify.
-
+        
     Returns:
         pd.DataFrame: The modified DataFrame with 'isLateral' as boolean type.
     """
     if df['isLateral'].dtype != 'bool':
         # Convert values: 1 to True, others to False
         df['isLateral'] = df['isLateral'] == 1
+        # Save the updated DataFrame to CSV
+        csv_file = '/app/data/dados_atualizados.csv'
+        df.to_csv(csv_file, index=False)
+        logging.info(f"'isLateral' column converted to boolean and DataFrame saved to {csv_file}")
     return df
 
 # Function to get the current position
