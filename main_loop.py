@@ -51,37 +51,74 @@ if not os.path.isfile(trade_history_file):
     df_trade_history = pd.DataFrame(columns=columns)
     df_trade_history.to_csv(trade_history_file, index=False)
 
-# Function to fetch historical kline data
+def get_previous_candle_start(dt, interval_minutes):
+    """
+    Calcula o início do candle anterior com base no intervalo especificado.
+    
+    Args:
+        dt (datetime): Data e hora atuais em UTC.
+        interval_minutes (int): Duração do intervalo em minutos.
+    
+    Returns:
+        datetime: Data e hora do início do candle anterior.
+    """
+    interval = timedelta(minutes=interval_minutes)
+    # Trunca o tempo atual para o início do candle atual
+    truncated_time = dt - (dt - datetime.min) % interval
+    # Calcula o início do candle anterior
+    previous_candle_start = truncated_time - interval
+    return previous_candle_start
+
 def get_historical_klines_and_append(symbol, interval):
     try:
         now = datetime.utcnow()
-        from_time = now - timedelta(minutes=int(interval))
-        from_time_ms = int(from_time.timestamp() * 1000)  # Corrected to milliseconds
+        # Calcula o início do candle anterior
+        previous_candle_start = get_previous_candle_start(now, interval)
+        from_time_ms = int(previous_candle_start.timestamp() * 1000)  # Converte para milissegundos
+        
+        # Faz a requisição para obter o candle anterior
         kline = session.get_kline(
             category='linear',
             symbol=symbol,
             interval=str(interval),
             start=str(from_time_ms),
-            limit=2  # Fetch only one candle
+            limit=1  # Solicita apenas 1 candle: o anterior completo
         )
+        
         if kline['retMsg'] != 'OK':
             logging.error(f"Error fetching kline data: {kline['retMsg']}")
             return None
-        kline_data = kline['result']['list'][1]
-        df = pd.DataFrame(kline_data, columns=[
+        
+        kline_list = kline['result']['list']
+        
+        # Verifica se pelo menos 1 candle foi retornado
+        if len(kline_list) < 1:
+            logging.error("Not enough candles returned by API.")
+            return None
+        
+        # Obtém o candle anterior
+        kline_data = kline_list[0]
+        
+        # Cria o DataFrame com o candle anterior
+        df = pd.DataFrame([kline_data], columns=[
             'timestamp', 'open', 'high', 'low', 'close', 'volume', 'turnover'
         ])
 
+        # Processa os dados do DataFrame
         df['timestamp'] = pd.to_numeric(df['timestamp'], errors='coerce')
         df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
         numeric_columns = ['open', 'high', 'low', 'close', 'volume', 'turnover']
         df[numeric_columns] = df[numeric_columns].astype(float)
 
+        # Define o caminho do arquivo CSV
         csv_file = '/app/data/dados_atualizados.csv'
+        
+        # Adiciona o candle ao CSV
         if os.path.exists(csv_file):
             df.to_csv(csv_file, mode='a', header=False, index=False)
         else:
             df.to_csv(csv_file, index=False)
+        
         return df
     except Exception as e:
         logging.error(f"Exception in get_historical_klines_and_append: {e}")
@@ -388,7 +425,7 @@ while True:
         current_second = current_time.second
 
         # Verificar se é o momento de buscar os klines (segundo 1 de cada hora)
-        if current_minute == 20: # and current_second == 1: # and last_fetched_hour != current_hour:
+        if current_minute == 35: # and current_second == 1: # and last_fetched_hour != current_hour:
             # Buscar os últimos dados de kline de 1 hora
             df = get_historical_klines_and_append(symbol, interval=60)
             if df is None or df.empty:
