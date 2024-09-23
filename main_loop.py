@@ -250,12 +250,22 @@ def get_adx_manual(high, low, close, di_lookback, adx_smoothing):
 
 # Function to calculate indicators
 def calculate_indicators(df):
+    """
+    Calcula os indicadores técnicos e atualiza o CSV 'dados_atualizados.csv' com os valores calculados.
+
+    Args:
+        df (pd.DataFrame): DataFrame contendo os dados do candle recém-adicionado.
+
+    Returns:
+        pd.DataFrame: DataFrame atualizado com os indicadores ou None em caso de erro.
+    """
     try:
+        # Extrair os preços do DataFrame
         close_price = df['close']
         high_price = df['high']
         low_price = df['low']
 
-        # Parameters
+        # Parâmetros dos indicadores
         emaShortLength = 11
         emaLongLength = 55
         rsiLength = 22
@@ -264,7 +274,6 @@ def calculate_indicators(df):
         macdSignal = 11
         adxLength = 16
         adxSmoothing = 13
-        adxThreshold = 12
         bbLength = 14
         bbMultiplier = 1.7
         lateralThreshold = 0.005
@@ -282,20 +291,62 @@ def calculate_indicators(df):
         bandWidth = (upperBand - lowerBand) / middleBand
         isLateral = bandWidth < lateralThreshold
 
-        df['emaShort'] = emaShort
-        df['emaLong'] = emaLong
-        df['rsi'] = rsi
-        df['macdHist'] = macdHist
-        df['adx'] = adx
-        df['upperBand'] = upperBand
-        df['middleBand'] = middleBand
-        df['lowerBand'] = lowerBand
-        df['bandWidth'] = bandWidth
-        df['isLateral'] = isLateral
+        # Mapeamento dos indicadores para os nomes das colunas do CSV
+        df['EMA Curta (21)'] = emaShort
+        df['EMA Longa (55)'] = emaLong
+        df['RSI'] = rsi
+        df['MACD Histogram'] = macdHist
+        df['ADX'] = adx
+        df['ADX Plus'] = plus_di
+        df['ADX Minus'] = minus_di
+        df['Upper Band'] = upperBand
+        df['Middle Band'] = middleBand
+        df['Lower Band'] = lowerBand
+        df['BandWidth'] = bandWidth
+        # 'isLateral' não está presente no CSV. Se desejar adicioná-la, descomente a linha abaixo e adicione a coluna no CSV.
+        # df['isLateral'] = isLateral
 
-        return df
+        # Definir o caminho do arquivo CSV
+        csv_file = '/app/data/dados_atualizados.csv'
+
+        # Verificar se o arquivo CSV existe
+        if not os.path.exists(csv_file):
+            logging.error(f"CSV file does not exist: {csv_file}")
+            return None
+
+        # Carregar o CSV existente
+        existing_df = pd.read_csv(csv_file)
+
+        # Obter o timestamp da nova linha
+        new_time = df.iloc[0]['time']
+
+        # Verificar se o timestamp da nova linha corresponde à última linha do CSV
+        last_time = existing_df.iloc[-1]['time']
+        if new_time != last_time:
+            logging.error("O timestamp da nova linha não corresponde à última linha do CSV.")
+            return None
+
+        # Lista das colunas de indicadores para atualização
+        indicator_columns = [
+            'EMA Curta (21)', 'EMA Longa (55)', 'RSI', 'MACD Histogram',
+            'ADX', 'ADX Plus', 'ADX Minus', 'Upper Band', 'Middle Band',
+            'Lower Band', 'BandWidth'
+        ]
+
+        # Atualizar as colunas de indicadores na última linha do CSV
+        for column in indicator_columns:
+            existing_df.at[existing_df.index[-1], column] = df.iloc[0][column]
+
+        # Salvar o CSV atualizado
+        existing_df.to_csv(csv_file, index=False)
+
+        logging.info(f"Successfully updated indicators in CSV: {csv_file}")
+
+        return existing_df
+
     except Exception as e:
         logging.error(f"Exception in calculate_indicators: {e}")
+        logging.error(traceback.format_exc())
         return None
 
 # Helper functions for crossover logic
