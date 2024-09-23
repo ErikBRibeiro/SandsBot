@@ -425,7 +425,7 @@ while True:
         current_second = current_time.second
 
         # Verificar se é o momento de buscar os klines (segundo 1 de cada hora)
-        if current_minute == 00 and current_second == 1 and last_fetched_hour != current_hour:
+        if last_fetched_hour != current_hour:
             # Buscar os últimos dados de kline de 1 hora
             df = get_historical_klines_and_append(symbol, interval=60)
             if df is None or df.empty:
