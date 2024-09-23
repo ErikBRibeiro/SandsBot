@@ -246,7 +246,7 @@ def get_adx_manual(high, low, close, di_lookback, adx_smoothing):
     minus_di = minus_di.iloc[::-1].reset_index(drop=True)
     adx = adx.iloc[::-1].reset_index(drop=True)
 
-    return plus_di, minus_di, adx
+    return adx
 
 # Function to calculate indicators
 def calculate_indicators(df):
@@ -286,7 +286,7 @@ def calculate_indicators(df):
         upperBand, middleBand, lowerBand = talib.BBANDS(
             close_price, timeperiod=bbLength, nbdevup=bbMultiplier, nbdevdn=bbMultiplier
         )
-        plus_di, minus_di, adx = get_adx_manual(high_price, low_price, close_price, adxLength, adxSmoothing)
+        adx = get_adx_manual(high_price, low_price, close_price, adxLength, adxSmoothing)
         adx = adx.fillna(0).astype(int)
         bandWidth = (upperBand - lowerBand) / middleBand
         isLateral = bandWidth < lateralThreshold
@@ -297,8 +297,6 @@ def calculate_indicators(df):
         df['rsi'] = rsi
         df['macdHist'] = macdHist
         df['adx'] = adx
-        df['plus_di'] = plus_di
-        df['minus_di'] = minus_di
         df['upperBand'] = upperBand
         df['middleBand'] = middleBand
         df['lowerBand'] = lowerBand
@@ -329,7 +327,7 @@ def calculate_indicators(df):
         # Lista das colunas de indicadores para atualização
         indicator_columns = [
             'emaShort', 'emaLong', 'rsi', 'macdHist',
-            'adx', 'plus_di', 'minus_di', 'upperBand', 'middleBand',
+            'adx', 'upperBand', 'middleBand',
             'lowerBand', 'bandWidth'
         ]
 
