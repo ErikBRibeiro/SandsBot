@@ -62,12 +62,12 @@ def get_historical_klines_and_append(symbol, interval):
             symbol=symbol,
             interval=str(interval),
             start=str(from_time_ms),
-            limit=1  # Fetch only one candle
+            limit=2  # Fetch only one candle
         )
         if kline['retMsg'] != 'OK':
             logging.error(f"Error fetching kline data: {kline['retMsg']}")
             return None
-        kline_data = kline['result']['list']
+        kline_data = kline['result']['list'][1]
         df = pd.DataFrame(kline_data, columns=[
             'timestamp', 'open', 'high', 'low', 'close', 'volume', 'turnover'
         ])
@@ -379,6 +379,22 @@ current_secondary_stop_loss = None
 current_secondary_stop_gain = None
 previous_commission = 0  # Para armazenar a comissão da entrada
 
+
+# Inicializar variáveis de indicadores antes do loop
+emaShort = None
+emaLong = None
+rsi = None
+macdHist = None
+adx = None
+isLateral = None
+upperBand = None
+lowerBand = None
+bandWidth = None
+trendingMarket = False
+
+# Inicializar variável para controlar se os indicadores estão prontos
+indicators_ready = False
+
 # Main trading loop
 while True:
     try:
@@ -388,7 +404,7 @@ while True:
         current_second = current_time.second
 
         # Verificar se é o momento de buscar os klines (segundo 1 de cada hora)
-        if current_minute == 0 and current_second == 1 and last_fetched_hour != current_hour:
+        if current_minute == 11 and current_second == 1 and last_fetched_hour != current_hour:
             # Buscar os últimos dados de kline de 1 hora
             df = get_historical_klines_and_append(symbol, interval=60)
             if df is None or df.empty:
