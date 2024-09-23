@@ -54,11 +54,11 @@ if not os.path.isfile(trade_history_file):
 def get_previous_candle_start(dt, interval_minutes):
     """
     Calcula o início do candle anterior com base no intervalo especificado.
-    
+
     Args:
         dt (datetime): Data e hora atuais em UTC.
         interval_minutes (int): Duração do intervalo em minutos.
-    
+
     Returns:
         datetime: Data e hora do início do candle anterior.
     """
@@ -76,11 +76,11 @@ def get_previous_candle_start(dt, interval_minutes):
 def get_historical_klines_and_append(symbol, interval):
     """
     Busca o candle anterior da Bybit e adiciona ao CSV, preenchendo com NaN onde necessário.
-    
+
     Args:
         symbol (str): Símbolo do par de negociação (e.g., 'BTCUSD').
         interval (int): Intervalo de tempo em minutos (e.g., 60 para 1h).
-    
+
     Returns:
         pd.DataFrame: DataFrame contendo os dados do candle anterior ou None em caso de erro.
     """
@@ -93,16 +93,16 @@ def get_historical_klines_and_append(symbol, interval):
         'RSI', 'MACD Line', 'Signal Line',
         'MACD Histogram', 'BandWidth'
     ]
-    
+
     try:
         now = datetime.utcnow()
         # Calcula o início do candle anterior
         previous_candle_start = get_previous_candle_start(now, interval)
         from_time_ms = int(previous_candle_start.timestamp() * 1000)  # Converte para milissegundos
-        
+
         logging.debug(f"Fetching kline data for symbol: {symbol}, interval: {interval} minutes")
         logging.debug(f"From timestamp (ms): {from_time_ms}")
-        
+
         # Faz a requisição para obter o candle anterior
         kline = session.get_kline(
             category='linear',
@@ -111,57 +111,66 @@ def get_historical_klines_and_append(symbol, interval):
             start=str(from_time_ms),
             limit=1  # Solicita apenas 1 candle: o anterior completo
         )
-        
+
         logging.debug(f"API response: {kline}")
-        
+
         if kline['retMsg'] != 'OK':
             logging.error(f"Error fetching kline data: {kline['retMsg']}")
             return None
-        
+
         kline_list = kline['result']['list']
-        
+
         logging.debug(f"kline_list: {kline_list}")
-        
+
         # Verifica se pelo menos 1 candle foi retornado
         if len(kline_list) < 1:
             logging.error("Not enough candles returned by API.")
             return None
-        
+
         # Obtém o candle anterior
         kline_data = kline_list[0]
-        
+
         logging.debug(f"kline_data: {kline_data}")
-        
+
         # Certifique-se de que kline_data seja uma lista com pelo menos 5 elementos
         # [timestamp, open, high, low, close, volume, turnover]
         if not isinstance(kline_data, list) or len(kline_data) < 5:
             logging.error("Unexpected kline_data format.")
             return None
-        
+
         # Cria um dicionário para a nova linha com todas as colunas, preenchendo com NaN
         new_row = {column: float('nan') for column in csv_columns}
-        
+
         # Preenche as colunas disponíveis com os dados retornados
-        timestamp = int(kline_data[0])  # Mantém o timestamp como inteiro
+        timestamp = int(kline_data[0])
+
+        # Determinar se o timestamp está em milissegundos ou segundos
+        if timestamp > 1e12:
+            # Está em milissegundos; converter para segundos
+            timestamp = int(timestamp / 1000)
+            logging.debug(f"Converted timestamp from ms to s: {timestamp}")
+        else:
+            logging.debug(f"Timestamp is already in seconds: {timestamp}")
+
         new_row['time'] = timestamp
         new_row['open'] = float(kline_data[1])
         new_row['high'] = float(kline_data[2])
         new_row['low'] = float(kline_data[3])
         new_row['close'] = float(kline_data[4])
-        
+
         # Se existir, adicione volume e turnover (ajuste conforme necessário)
         # Se o CSV não tiver essas colunas, ignore
         # new_row['volume'] = float(kline_data[5]) if len(kline_data) > 5 else float('nan')
         # new_row['turnover'] = float(kline_data[6]) if len(kline_data) > 6 else float('nan')
-        
+
         logging.debug(f"New row data: {new_row}")
-        
+
         # Cria o DataFrame com a nova linha
         df_new = pd.DataFrame([new_row], columns=csv_columns)
-        
+
         # Define o caminho do arquivo CSV
         csv_file = '/app/data/dados_atualizados.csv'
-        
+
         # Adiciona o candle ao CSV
         if os.path.exists(csv_file):
             # Verifica se o CSV já possui as colunas definidas
@@ -173,7 +182,7 @@ def get_historical_klines_and_append(symbol, interval):
             df_new.to_csv(csv_file, mode='a', header=False, index=False)
         else:
             df_new.to_csv(csv_file, mode='w', header=True, index=False)
-        
+
         logging.info(f"Successfully appended new candle to CSV: {csv_file}")
         return df_new
     except Exception as e:
