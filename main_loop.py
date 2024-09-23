@@ -51,11 +51,6 @@ if not os.path.isfile(trade_history_file):
     df_trade_history = pd.DataFrame(columns=columns)
     df_trade_history.to_csv(trade_history_file, index=False)
 
-import pandas as pd
-import os
-import logging
-from datetime import datetime, timedelta
-
 def get_previous_candle_start(dt, interval_minutes):
     """
     Calcula o início do candle anterior com base no intervalo especificado.
@@ -124,20 +119,29 @@ def get_historical_klines_and_append(symbol, interval):
         # Obtém o candle anterior
         kline_data = kline_list[0]
         
+        # Certifique-se de que kline_data seja uma lista com pelo menos 5 elementos
+        # [timestamp, open, high, low, close, volume, turnover]
+        if not isinstance(kline_data, list) or len(kline_data) < 5:
+            logging.error("Unexpected kline_data format.")
+            return None
+        
         # Cria um dicionário para a nova linha com todas as colunas, preenchendo com NaN
         new_row = {column: float('nan') for column in csv_columns}
         
         # Preenche as colunas disponíveis com os dados retornados
-        new_row['time'] = pd.to_datetime(int(kline_data['timestamp']), unit='s')  # Ajuste conforme a unidade retornada
-        new_row['open'] = float(kline_data['open'])
-        new_row['high'] = float(kline_data['high'])
-        new_row['low'] = float(kline_data['low'])
-        new_row['close'] = float(kline_data['close'])
+        # Ajuste 'timestamp' para 'time' e converta conforme a unidade (segundos ou milissegundos)
+        # Verifique a documentação da API para confirmar a unidade
+        # Se 'timestamp' estiver em milissegundos, use unit='ms'
+        new_row['time'] = pd.to_datetime(int(kline_data[0]), unit='s')  # ou unit='ms'
+        new_row['open'] = float(kline_data[1])
+        new_row['high'] = float(kline_data[2])
+        new_row['low'] = float(kline_data[3])
+        new_row['close'] = float(kline_data[4])
         
         # Se existir, adicione volume e turnover (ajuste conforme necessário)
         # Se o CSV não tiver essas colunas, ignore
-        # new_row['volume'] = float(kline_data.get('volume', float('nan')))
-        # new_row['turnover'] = float(kline_data.get('turnover', float('nan')))
+        # new_row['volume'] = float(kline_data[5]) if len(kline_data) > 5 else float('nan')
+        # new_row['turnover'] = float(kline_data[6]) if len(kline_data) > 6 else float('nan')
         
         # Cria o DataFrame com a nova linha
         df_new = pd.DataFrame([new_row], columns=csv_columns)
@@ -162,6 +166,7 @@ def get_historical_klines_and_append(symbol, interval):
         logging.error(f"Exception in get_historical_klines_and_append: {e}")
         logging.error(traceback.format_exc())
         return None
+
 
 
 def macd_func(series, fast_period, slow_period, signal_period):
