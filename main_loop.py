@@ -193,51 +193,33 @@ def macd_func(series, fast_period, slow_period, signal_period):
     macd_hist = macd_line - signal_line
     return macd_line, signal_line, macd_hist
 
-def get_adx_manual(high, low, close, di_lookback, adx_smoothing):
-    # Reverse the data to process from oldest to newest
-    high = high.iloc[::-1].reset_index(drop=True)
-    low = low.iloc[::-1].reset_index(drop=True)
-    close = close.iloc[::-1].reset_index(drop=True)
+def get_adx_manual(high, low, close, di_period, adx_period):
+    # Calculate True Range (TR)
+    high_low = high - low
+    high_close_prev = (high - close.shift()).abs()
+    low_close_prev = (low - close.shift()).abs()
+    tr = pd.concat([high_low, high_close_prev, low_close_prev], axis=1).max(axis=1)
 
-    tr = []
-    previous_close = close.iloc[0]
-    plus_dm = []
-    minus_dm = []
+    # Calculate Directional Movement (+DM and -DM)
+    plus_dm = high.diff()
+    minus_dm = low.diff() * -1
 
-    for i in range(1, len(close)):
-        current_plus_dm = high.iloc[i] - high.iloc[i-1]
-        current_minus_dm = low.iloc[i-1] - low.iloc[i]
-        plus_dm.append(max(current_plus_dm, 0) if current_plus_dm > current_minus_dm else 0)
-        minus_dm.append(max(current_minus_dm, 0) if current_minus_dm > current_plus_dm else 0)
+    plus_dm[plus_dm < 0] = 0
+    minus_dm[minus_dm < 0] = 0
 
-        tr1 = high.iloc[i] - low.iloc[i]
-        tr2 = abs(high.iloc[i] - previous_close)
-        tr3 = abs(low.iloc[i] - previous_close)
-        true_range = max(tr1, tr2, tr3)
-        tr.append(true_range)
+    plus_dm[plus_dm < minus_dm] = 0
+    minus_dm[minus_dm < plus_dm] = 0
 
-        previous_close = close.iloc[i]
+    # Smooth the TR, +DM, -DM
+    atr = tr.rolling(window=di_period).mean()
+    plus_di = 100 * (plus_dm.rolling(window=di_period).mean() / atr)
+    minus_di = 100 * (minus_dm.rolling(window=di_period).mean() / atr)
 
-    tr.insert(0, np.nan)
-    plus_dm.insert(0, np.nan)
-    minus_dm.insert(0, np.nan)
+    # Calculate DX
+    dx = (abs(plus_di - minus_di) / (plus_di + minus_di)).abs() * 100
 
-    tr = pd.Series(tr)
-    plus_dm = pd.Series(plus_dm)
-    minus_dm = pd.Series(minus_dm)
-
-    atr = tr.rolling(window=di_lookback).mean()
-
-    plus_di = 100 * (plus_dm.ewm(alpha=1/di_lookback, adjust=False).mean() / atr)
-    minus_di = 100 * (minus_dm.ewm(alpha=1/di_lookback, adjust=False).mean() / atr)
-
-    dx = (abs(plus_di - minus_di) / (plus_di + minus_di)) * 100
-    adx = dx.ewm(alpha=1/adx_smoothing, adjust=False).mean()
-
-    # Reverse the results to the original order (most recent to oldest)
-    plus_di = plus_di.iloc[::-1].reset_index(drop=True)
-    minus_di = minus_di.iloc[::-1].reset_index(drop=True)
-    adx = adx.iloc[::-1].reset_index(drop=True)
+    # Calculate ADX
+    adx = dx.rolling(window=adx_period).mean()
 
     return adx
 
