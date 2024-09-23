@@ -241,6 +241,7 @@ def get_adx_manual(high, low, close, di_lookback, adx_smoothing):
 
     return adx
 
+# Function to calculate indicators
 def calculate_indicators():
     """
     Calculates technical indicators and updates the CSV 'dados_atualizados.csv' with the calculated values.
@@ -305,10 +306,11 @@ def calculate_indicators():
         df['middleBand'] = middleBand
         df['lowerBand'] = lowerBand
         df['bandWidth'] = bandWidth
-        df['isLateral'] = isLateral.astype(bool)  # Ensure 'isLateral' is boolean
+        df['isLateral'] = isLateral.astype(bool)
 
         # Save the updated CSV
         df.to_csv(csv_file, index=False)
+
         logging.info(f"Successfully updated indicators in CSV: {csv_file}")
 
         return df
@@ -521,7 +523,27 @@ while True:
         current_minute = current_time.minute
         current_second = current_time.second
 
-        # Check if it's time to fetch klines (e.g., at the beginning of each hour)
+
+
+        # Load the indicators and data
+        df = pd.read_csv('/app/data/dados_atualizados.csv')
+        df = df.sort_values('time').reset_index(drop=True)
+        df = ensure_isLateral_boolean(df)
+
+        # Obtain the last row of the DataFrame for current calculations
+        last_row = df.iloc[-1]
+        adjusted_timestamp = last_row['time']
+        emaShort = df['emaShort']
+        emaLong = df['emaLong']
+        rsi = df['rsi']
+        macdHist = df['macdHist']
+        adx = df['adx']
+        isLateral = df['isLateral']
+        upperBand = df['upperBand']
+        lowerBand = df['lowerBand']
+        bandWidth = df['bandWidth']
+
+                # Check if it's time to fetch klines (e.g., at the beginning of each hour)
         if last_fetched_hour != current_hour:
             # Fetch the latest 1-hour kline data
             df_new_row = get_historical_klines_and_append(symbol, interval=60)
@@ -538,22 +560,22 @@ while True:
                 time.sleep(10)
                 continue
 
-            # Re-assign the variables after updating indicators
-            df = df.sort_values('time').reset_index(drop=True)
-            last_row = df.iloc[-1]
-            adjusted_timestamp = last_row['time']
-            emaShort = df['emaShort']
-            emaLong = df['emaLong']
-            rsi = df['rsi']
-            macdHist = df['macdHist']
-            adx = df['adx']
-            isLateral = df['isLateral']
-            upperBand = df['upperBand']
-            lowerBand = df['lowerBand']
-            bandWidth = df['bandWidth']
+        # Re-assign the variables after updating indicators
+        df = df.sort_values('time').reset_index(drop=True)
+        last_row = df.iloc[-1]
+        adjusted_timestamp = last_row['time']
+        emaShort = df['emaShort']
+        emaLong = df['emaLong']
+        rsi = df['rsi']
+        macdHist = df['macdHist']
+        adx = df['adx']
+        isLateral = df['isLateral']
+        upperBand = df['upperBand']
+        lowerBand = df['lowerBand']
+        bandWidth = df['bandWidth']
 
-            # Determine if the market is trending
-            trendingMarket = adx.iloc[-1] >= 12  # adxThreshold
+        # Determine if the market is trending
+        trendingMarket = adx.iloc[-1] >= 12  # adxThreshold
 
         # Check if it's time to fetch klines (e.g., at the beginning of each hour)
         if last_fetched_hour != current_hour and current_minute == 0 and current_second <= 5:
