@@ -100,6 +100,9 @@ def get_historical_klines_and_append(symbol, interval):
         previous_candle_start = get_previous_candle_start(now, interval)
         from_time_ms = int(previous_candle_start.timestamp() * 1000)  # Converte para milissegundos
         
+        logging.debug(f"Fetching kline data for symbol: {symbol}, interval: {interval} minutes")
+        logging.debug(f"From timestamp (ms): {from_time_ms}")
+        
         # Faz a requisição para obter o candle anterior
         kline = session.get_kline(
             category='linear',
@@ -109,11 +112,15 @@ def get_historical_klines_and_append(symbol, interval):
             limit=1  # Solicita apenas 1 candle: o anterior completo
         )
         
+        logging.debug(f"API response: {kline}")
+        
         if kline['retMsg'] != 'OK':
             logging.error(f"Error fetching kline data: {kline['retMsg']}")
             return None
         
         kline_list = kline['result']['list']
+        
+        logging.debug(f"kline_list: {kline_list}")
         
         # Verifica se pelo menos 1 candle foi retornado
         if len(kline_list) < 1:
@@ -122,6 +129,8 @@ def get_historical_klines_and_append(symbol, interval):
         
         # Obtém o candle anterior
         kline_data = kline_list[0]
+        
+        logging.debug(f"kline_data: {kline_data}")
         
         # Certifique-se de que kline_data seja uma lista com pelo menos 5 elementos
         # [timestamp, open, high, low, close, volume, turnover]
@@ -133,10 +142,20 @@ def get_historical_klines_and_append(symbol, interval):
         new_row = {column: float('nan') for column in csv_columns}
         
         # Preenche as colunas disponíveis com os dados retornados
-        # Ajuste 'timestamp' para 'time' e converta conforme a unidade (segundos ou milissegundos)
-        # Verifique a documentação da API para confirmar a unidade
-        # Se 'timestamp' estiver em milissegundos, use unit='ms'
-        new_row['time'] = pd.to_datetime(int(kline_data[0]), unit='s')  # ou unit='ms'
+        timestamp = int(kline_data[0])
+        # Determinar a unidade do timestamp
+        if timestamp > 1e12:
+            unit = 'ms'
+        else:
+            unit = 's'
+        
+        try:
+            new_row['time'] = pd.to_datetime(timestamp, unit=unit)
+        except Exception as e:
+            logging.error(f"Error converting timestamp: {timestamp} with unit={unit}")
+            logging.error(traceback.format_exc())
+            return None
+        
         new_row['open'] = float(kline_data[1])
         new_row['high'] = float(kline_data[2])
         new_row['low'] = float(kline_data[3])
@@ -146,6 +165,8 @@ def get_historical_klines_and_append(symbol, interval):
         # Se o CSV não tiver essas colunas, ignore
         # new_row['volume'] = float(kline_data[5]) if len(kline_data) > 5 else float('nan')
         # new_row['turnover'] = float(kline_data[6]) if len(kline_data) > 6 else float('nan')
+        
+        logging.debug(f"New row data: {new_row}")
         
         # Cria o DataFrame com a nova linha
         df_new = pd.DataFrame([new_row], columns=csv_columns)
@@ -165,6 +186,7 @@ def get_historical_klines_and_append(symbol, interval):
         else:
             df_new.to_csv(csv_file, mode='w', header=True, index=False)
         
+        logging.info(f"Successfully appended new candle to CSV: {csv_file}")
         return df_new
     except Exception as e:
         logging.error(f"Exception in get_historical_klines_and_append: {e}")
