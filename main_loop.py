@@ -53,63 +53,62 @@ if not os.path.isfile(trade_history_file):
 
 def get_previous_candle_start(dt, interval_minutes):
     """
-    Calcula o início do candle anterior com base no intervalo especificado.
+    Calculates the start of the previous candle based on the specified interval.
 
     Args:
-        dt (datetime): Data e hora atuais em UTC.
-        interval_minutes (int): Duração do intervalo em minutos.
+        dt (datetime): Current UTC datetime.
+        interval_minutes (int): Duration of the interval in minutes.
 
     Returns:
-        datetime: Data e hora do início do candle anterior.
+        datetime: Start datetime of the previous candle.
     """
     interval = timedelta(minutes=interval_minutes)
-    # Calcula o início do candle atual
+    # Calculate the start of the current candle
     current_candle_start = dt - timedelta(
         minutes=dt.minute % interval_minutes,
         seconds=dt.second,
         microseconds=dt.microsecond
     )
-    # Calcula o início do candle anterior
+    # Calculate the start of the previous candle
     previous_candle_start = current_candle_start - interval
     return previous_candle_start
 
 def get_historical_klines_and_append(symbol, interval):
     """
-    Busca o candle anterior da Bybit e adiciona ao CSV, preenchendo com NaN onde necessário.
+    Fetches the previous candle from Bybit and appends it to the CSV, filling with NaN where necessary.
 
     Args:
-        symbol (str): Símbolo do par de negociação (e.g., 'BTCUSD').
-        interval (int): Intervalo de tempo em minutos (e.g., 60 para 1h).
+        symbol (str): Trading pair symbol (e.g., 'BTCUSD').
+        interval (int): Time interval in minutes (e.g., 60 for 1h).
 
     Returns:
-        pd.DataFrame: DataFrame contendo os dados do candle anterior ou None em caso de erro.
+        pd.DataFrame: DataFrame containing the data of the previous candle or None in case of error.
     """
-    # Lista completa de colunas do CSV
+    # Full list of CSV columns
     csv_columns = [
         'time', 'open', 'high', 'low', 'close',
         'upperBand', 'lowerBand', 'middleBand',
         'emaShort', 'emaLong',
-        'adx', 'adxPlus ', 'adxMinus',
-        'rsi', 'macdLine', 'signalLine',
+        'adx', 'rsi', 'macdLine', 'signalLine',
         'macdHist', 'bandWidth', 'isLateral'
     ]
 
     try:
         now = datetime.utcnow()
-        # Calcula o início do candle anterior
+        # Calculate the start of the previous candle
         previous_candle_start = get_previous_candle_start(now, interval)
-        from_time_ms = int(previous_candle_start.timestamp() * 1000)  # Converte para milissegundos
+        from_time_ms = int(previous_candle_start.timestamp() * 1000)  # Convert to milliseconds
 
         logging.debug(f"Fetching kline data for symbol: {symbol}, interval: {interval} minutes")
         logging.debug(f"From timestamp (ms): {from_time_ms}")
 
-        # Faz a requisição para obter o candle anterior
+        # Make the request to get the previous candle
         kline = session.get_kline(
             category='linear',
             symbol=symbol,
             interval=str(interval),
             start=str(from_time_ms),
-            limit=1  # Solicita apenas 1 candle: o anterior completo
+            limit=1  # Request only 1 candle: the previous complete one
         )
 
         logging.debug(f"API response: {kline}")
@@ -122,31 +121,31 @@ def get_historical_klines_and_append(symbol, interval):
 
         logging.debug(f"kline_list: {kline_list}")
 
-        # Verifica se pelo menos 1 candle foi retornado
+        # Check if at least 1 candle was returned
         if len(kline_list) < 1:
             logging.error("Not enough candles returned by API.")
             return None
 
-        # Obtém o candle anterior
+        # Get the previous candle
         kline_data = kline_list[0]
 
         logging.debug(f"kline_data: {kline_data}")
 
-        # Certifique-se de que kline_data seja uma lista com pelo menos 5 elementos
+        # Ensure kline_data is a list with at least 5 elements
         # [timestamp, open, high, low, close, volume, turnover]
         if not isinstance(kline_data, list) or len(kline_data) < 5:
             logging.error("Unexpected kline_data format.")
             return None
 
-        # Cria um dicionário para a nova linha com todas as colunas, preenchendo com NaN
+        # Create a dictionary for the new row with all columns, filling with NaN
         new_row = {column: float('nan') for column in csv_columns}
 
-        # Preenche as colunas disponíveis com os dados retornados
+        # Fill the available columns with the returned data
         timestamp = int(kline_data[0])
 
-        # Determinar se o timestamp está em milissegundos ou segundos
+        # Determine if the timestamp is in milliseconds or seconds
         if timestamp > 1e12:
-            # Está em milissegundos; converter para segundos
+            # It's in milliseconds; convert to seconds
             timestamp = int(timestamp / 1000)
             logging.debug(f"Converted timestamp from ms to s: {timestamp}")
         else:
@@ -157,18 +156,21 @@ def get_historical_klines_and_append(symbol, interval):
         new_row['high'] = float(kline_data[2])
         new_row['low'] = float(kline_data[3])
         new_row['close'] = float(kline_data[4])
+        new_row['isLateral'] = False  # Initialize as False
 
-        # Cria o DataFrame com a nova linha
+        logging.debug(f"New row data: {new_row}")
+
+        # Create the DataFrame with the new row
         df_new = pd.DataFrame([new_row], columns=csv_columns)
 
-        # Define o caminho do arquivo CSV
+        # Define the CSV file path
         csv_file = '/app/data/dados_atualizados.csv'
 
-        # Adiciona o candle ao CSV
+        # Append the candle to the CSV
         if os.path.exists(csv_file):
-            # Verifica se o CSV já possui as colunas definidas
+            # Check if the CSV already has the defined columns
             existing_columns = pd.read_csv(csv_file, nrows=0).columns.tolist()
-            # Se houver diferenças nas colunas, alinha-as
+            # If there are differences in the columns, align them
             if existing_columns != csv_columns:
                 logging.warning("Diferença nas colunas do CSV. Ajustando para alinhar as colunas.")
                 df_new = df_new[existing_columns]
@@ -192,7 +194,7 @@ def macd_func(series, fast_period, slow_period, signal_period):
     return macd_line, signal_line, macd_hist
 
 def get_adx_manual(high, low, close, di_lookback, adx_smoothing):
-    # Inverter os dados para processar do mais antigo para o mais recente
+    # Reverse the data to process from oldest to newest
     high = high.iloc[::-1].reset_index(drop=True)
     low = low.iloc[::-1].reset_index(drop=True)
     close = close.iloc[::-1].reset_index(drop=True)
@@ -232,47 +234,42 @@ def get_adx_manual(high, low, close, di_lookback, adx_smoothing):
     dx = (abs(plus_di - minus_di) / (plus_di + minus_di)) * 100
     adx = dx.ewm(alpha=1/adx_smoothing, adjust=False).mean()
 
-    # Reverter os resultados para a ordem original (do mais recente para o mais antigo)
+    # Reverse the results to the original order (most recent to oldest)
     plus_di = plus_di.iloc[::-1].reset_index(drop=True)
     minus_di = minus_di.iloc[::-1].reset_index(drop=True)
     adx = adx.iloc[::-1].reset_index(drop=True)
 
     return adx
 
-def ensure_isLateral_boolean(df):
-    """
-    Checks if the 'isLateral' column in the DataFrame is of boolean type.
-    If not, converts it to boolean, where 1 becomes True and 0 becomes False.
-
-    Args:
-        df (pd.DataFrame): The DataFrame to check and modify.
-
-    Returns:
-        pd.DataFrame: The modified DataFrame with 'isLateral' as boolean type.
-    """
-    if df['isLateral'].dtype != 'bool':
-        # Convert values: 1 to True, others to False
-        df['isLateral'] = df['isLateral'] == 1
-    return df
-
 # Function to calculate indicators
-def calculate_indicators(df):
+def calculate_indicators():
     """
-    Calcula os indicadores técnicos e atualiza o CSV 'dados_atualizados.csv' com os valores calculados.
-
-    Args:
-        df (pd.DataFrame): DataFrame contendo os dados do candle recém-adicionado.
+    Calculates technical indicators and updates the CSV 'dados_atualizados.csv' with the calculated values.
 
     Returns:
-        pd.DataFrame: DataFrame atualizado com os indicadores ou None em caso de erro.
+        pd.DataFrame: Updated DataFrame with indicators or None in case of error.
     """
     try:
-        # Extrair os preços do DataFrame
+        # Define the path to the CSV file
+        csv_file = '/app/data/dados_atualizados.csv'
+
+        # Check if the CSV file exists
+        if not os.path.exists(csv_file):
+            logging.error(f"CSV file does not exist: {csv_file}")
+            return None
+
+        # Load the existing CSV including the new row
+        df = pd.read_csv(csv_file)
+
+        # Ensure the DataFrame is sorted by time
+        df = df.sort_values('time').reset_index(drop=True)
+
+        # Extract prices from the DataFrame
         close_price = df['close']
         high_price = df['high']
         low_price = df['low']
 
-        # Parâmetros dos indicadores
+        # Indicator parameters
         emaShortLength = 11
         emaLongLength = 55
         rsiLength = 22
@@ -298,58 +295,25 @@ def calculate_indicators(df):
         bandWidth = (upperBand - lowerBand) / middleBand
         isLateral = bandWidth < lateralThreshold
 
-        # Mapeamento dos indicadores para os nomes das colunas do CSV
+        # Map indicators to DataFrame columns
         df['emaShort'] = emaShort
         df['emaLong'] = emaLong
         df['rsi'] = rsi
+        df['macdLine'] = macdLine
+        df['signalLine'] = signalLine
         df['macdHist'] = macdHist
-        df['adx'] = adx
         df['upperBand'] = upperBand
         df['middleBand'] = middleBand
         df['lowerBand'] = lowerBand
         df['bandWidth'] = bandWidth
-        df['isLateral'] = isLateral.astype(bool)  # Ensure 'isLateral' is boolean
+        df['isLateral'] = isLateral.astype(bool)
 
-        # Ensure 'isLateral' is boolean
-        df = ensure_isLateral_boolean(df)
-
-        # Definir o caminho do arquivo CSV
-        csv_file = '/app/data/dados_atualizados.csv'
-
-        # Verificar se o arquivo CSV existe
-        if not os.path.exists(csv_file):
-            logging.error(f"CSV file does not exist: {csv_file}")
-            return None
-
-        # Carregar o CSV existente
-        existing_df = pd.read_csv(csv_file)
-
-        # Obter o timestamp da nova linha
-        new_time = df.iloc[0]['time']
-
-        # Verificar se o timestamp da nova linha corresponde à última linha do CSV
-        last_time = existing_df.iloc[-1]['time']
-        if new_time != last_time:
-            logging.error("O timestamp da nova linha não corresponde à última linha do CSV.")
-            return None
-
-        # Lista das colunas de indicadores para atualização
-        indicator_columns = [
-            'emaShort', 'emaLong', 'rsi', 'macdHist',
-            'adx', 'upperBand', 'middleBand',
-            'lowerBand', 'bandWidth', 'isLateral'
-        ]
-
-        # Atualizar as colunas de indicadores na última linha do CSV
-        for column in indicator_columns:
-            existing_df.at[existing_df.index[-1], column] = df.iloc[0][column]
-
-        # Salvar o CSV atualizado
-        existing_df.to_csv(csv_file, index=False)
+        # Save the updated CSV
+        df.to_csv(csv_file, index=False)
 
         logging.info(f"Successfully updated indicators in CSV: {csv_file}")
 
-        return existing_df
+        return df
 
     except Exception as e:
         logging.error(f"Exception in calculate_indicators: {e}")
@@ -373,24 +337,41 @@ def crossunder(series1, series2):
         logging.error(f"Exception in crossunder function: {e}")
         return pd.Series([False])
 
-# Função para obter a posição atual
+# Function to ensure 'isLateral' is boolean
+def ensure_isLateral_boolean(df):
+    """
+    Checks if the 'isLateral' column in the DataFrame is of boolean type.
+    If not, converts it to boolean, where 1 becomes True and 0 becomes False.
+
+    Args:
+        df (pd.DataFrame): The DataFrame to check and modify.
+
+    Returns:
+        pd.DataFrame: The modified DataFrame with 'isLateral' as boolean type.
+    """
+    if df['isLateral'].dtype != 'bool':
+        # Convert values: 1 to True, others to False
+        df['isLateral'] = df['isLateral'] == 1
+    return df
+
+# Function to get the current position
 def get_current_position(retries=3, backoff_factor=5):
     attempt = 0
     while attempt < retries:
         try:
-            # Utilizando o método correto para obter posições
+            # Using the correct method to get positions
             positions = session.get_positions(
-                category='linear',  # linear para contratos perpétuos
-                symbol=symbol       # par de símbolos como BTCUSDT
+                category='linear',  # linear for perpetual contracts
+                symbol=symbol       # symbol pair like BTCUSDT
             )
 
-            # Verificar se a resposta foi bem-sucedida
+            # Check if the response was successful
             if positions['retMsg'] != 'OK':
                 return None, None
 
             positions_data = positions['result']['list']
 
-            # Verificar se há uma posição aberta
+            # Check if there is an open position
             for pos in positions_data:
                 size = float(pos['size'])
                 if size != 0:
@@ -398,16 +379,16 @@ def get_current_position(retries=3, backoff_factor=5):
                     entry_price = float(pos['avgPrice'])
                     return side, {'entry_price': entry_price, 'size': size, 'side': side}
 
-            # Se não houver posição aberta, retornar False
+            # If no position is open, return False
             return False, None
 
         except Exception as e:
-            logging.error(f"Erro inesperado no get_current_position: {e}")
+            logging.error(f"Unexpected error in get_current_position: {e}")
             logging.error(traceback.format_exc())
             attempt += 1
             time.sleep(backoff_factor * attempt)
 
-    logging.error("Falha ao obter posição atual após várias tentativas.")
+    logging.error("Failed to get current position after several attempts.")
     return False, None
 
 # Function to fetch the latest price
@@ -434,11 +415,25 @@ def get_account_balance():
             logging.error(f"Error fetching account balance: {balance_info['retMsg']}")
             return None
 
-        # Acessando o totalEquity corretamente na lista dentro de result
+        # Accessing totalEquity correctly in the list inside result
         total_equity = float(balance_info['result']['list'][0]['totalEquity'])
         return total_equity
     except Exception as e:
         logging.error(f"Exception in get_account_balance: {e}")
+        return None
+
+# Function to calculate quantity based on equity and price
+def calculate_qty(total_equity, latest_price, leverage=1):
+    try:
+        # Calculate the number of contracts
+        qty = (total_equity * leverage) / latest_price
+        factor = 100
+        # Adjust for the precision allowed by Bybit (e.g., 2 decimal places)
+        qty = math.floor(qty * factor) / factor
+
+        return qty
+    except Exception as e:
+        logging.error(f"Exception in calculate_qty: {e}")
         return None
 
 # Functions to log trade entries and exits
@@ -481,7 +476,7 @@ def log_trade_exit(trade_id, symbol, update_data, exit_lateral):
         df_trade_history = pd.read_csv(trade_history_file)
         mask = (df_trade_history['trade_id'] == trade_id) & (df_trade_history['symbol'] == symbol)
         if mask.any():
-            update_data['exit_lateral'] = exit_lateral  # Adiciona 'exit_lateral'
+            update_data['exit_lateral'] = exit_lateral  # Add 'exit_lateral'
             for key, value in update_data.items():
                 df_trade_history.loc[mask, key] = value
             df_trade_history.to_csv(trade_history_file, index=False)
@@ -489,32 +484,6 @@ def log_trade_exit(trade_id, symbol, update_data, exit_lateral):
             logging.error("Trade not found in trade history for update.")
     except Exception as e:
         logging.error(f"Exception in log_trade_exit: {e}")
-
-def calculate_qty(total_equity, latest_price, leverage=1):
-    try:
-        # Calcular o número de contratos
-        qty = total_equity / latest_price
-        factor = 100
-        # Ajustar para a precisão permitida pela Bybit (exemplo: 2 casas decimais)
-        qty = math.floor(qty * factor) / factor
-
-        return qty
-    except Exception as e:
-        logging.error(f"Exception in calculate_qty: {e}")
-        return None
-
-out_of_trade_logged = False
-in_trade_logged = False
-
-# Função para logar o status de entrada na posição
-def log_entry(side, entry_price, size, stop_gain, stop_loss):
-    logging.info(f"Entrou em posição {side} com tamanho {size} BTC a {entry_price}.")
-    logging.info(f"Stopgain definido em {stop_gain}, Stoploss definido em {stop_loss}.")
-
-# Função para logar o status de saída da posição
-def log_exit(side, exit_price, size, outcome):
-    logging.info(f"Saindo da posição {side} com tamanho {size} BTC a {exit_price}.")
-    logging.info(f"Resultado da posição: {outcome}")
 
 # Trading parameters
 stopgain_lateral_long = 1.11
@@ -529,9 +498,9 @@ stoploss_normal_short = 1.12
 trade_count = 0  # Counter for the number of trades
 
 # Initialize variables
-last_fetched_hour = None  # Para rastrear a última hora em que os klines foram buscados
-last_log_time = None     # Para manter o controle do log a cada 10 minutos
-previous_isLateral = None  # Para detectar transições para o mercado lateral
+last_fetched_hour = None  # To track the last hour when klines were fetched
+last_log_time = None     # To keep track of logging every 10 minutes
+previous_isLateral = None  # To detect transitions to lateral market
 
 # Variables to track current trade
 current_trade_id = None
@@ -539,7 +508,7 @@ current_position_side = None
 entry_price = None
 current_secondary_stop_loss = None
 current_secondary_stop_gain = None
-previous_commission = 0  # Para armazenar a comissão da entrada
+previous_commission = 0  # To store the entry commission
 
 # Main trading loop
 while True:
@@ -549,18 +518,17 @@ while True:
         current_minute = current_time.minute
         current_second = current_time.second
 
-        # Verificar se é o momento de buscar os klines (segundo 1 de cada hora)
-        if last_fetched_hour != current_hour:
-            # Buscar os últimos dados de kline de 1 hora
-            df = get_historical_klines_and_append(symbol, interval=60)
-            if df is None or df.empty:
+        # Check if it's time to fetch klines (e.g., at the beginning of each hour)
+        if last_fetched_hour != current_hour and current_minute == 0 and current_second <= 5:
+            # Fetch the latest 1-hour kline data
+            df_new_row = get_historical_klines_and_append(symbol, interval=60)
+            if df_new_row is None or df_new_row.empty:
                 logging.error("Failed to fetch historical klines or received empty data.")
                 time.sleep(10)
                 continue
-            df = df.sort_values('time')
 
-            # Calcular indicadores
-            df = calculate_indicators(df)
+            # Calculate indicators
+            df = calculate_indicators()
             if df is None:
                 logging.error("Failed to calculate indicators.")
                 time.sleep(10)
@@ -569,7 +537,7 @@ while True:
             # Ensure 'isLateral' is boolean
             df = ensure_isLateral_boolean(df)
 
-            # Obter a última linha do DataFrame para usar nos cálculos atuais
+            # Obtain the last row of the DataFrame for current calculations
             last_row = df.iloc[-1]
             adjusted_timestamp = last_row['time']
             emaShort = df['emaShort']
@@ -582,23 +550,23 @@ while True:
             lowerBand = df['lowerBand']
             bandWidth = df['bandWidth']
 
-            # Determinar se o mercado está em tendência
+            # Determine if the market is trending
             trendingMarket = adx.iloc[-1] >= 12  # adxThreshold
 
-            # Detectar transição para mercado lateral ou de tendência
+            # Detect transition to lateral or trending market
             if previous_isLateral is not None and isLateral.iloc[-1] != previous_isLateral:
                 if isLateral.iloc[-1]:
-                    # Entrou no mercado lateral
+                    # Entered lateral market
                     logging.info("Entered lateral market. Stopgain and Stoploss levels adjusted.")
                     logging.info(f"Stopgain and Stoploss levels for lateral market - Long: Stopgain {stopgain_lateral_long}, Stoploss {stoploss_lateral_long}; Short: Stopgain {stopgain_lateral_short}, Stoploss {stoploss_lateral_short}")
                 else:
-                    # Saiu do mercado lateral
+                    # Exited lateral market
                     logging.info("Exited lateral market. Stopgain and Stoploss levels adjusted.")
                     logging.info(f"Stopgain and Stoploss levels for trending market - Long: Stopgain {stopgain_normal_long}, Stoploss {stoploss_normal_long}; Short: Stopgain {stopgain_normal_short}, Stoploss {stoploss_normal_short}")
-                # Atualizar stop_loss e stop_gain secundários se houver uma posição aberta
+                # Update secondary_stop_loss and secondary_stop_gain if there's an open position
                 if current_trade_id is not None:
                     if isLateral.iloc[-1]:
-                        # Agora está no mercado lateral
+                        # Now in lateral market
                         if current_position_side == 'buy':
                             current_secondary_stop_loss = entry_price * stoploss_lateral_long
                             current_secondary_stop_gain = entry_price * stopgain_lateral_long
@@ -606,14 +574,14 @@ while True:
                             current_secondary_stop_loss = entry_price * stoploss_lateral_short
                             current_secondary_stop_gain = entry_price * stopgain_lateral_short
                     else:
-                        # Agora está no mercado de tendência
+                        # Now in trending market
                         if current_position_side == 'buy':
                             current_secondary_stop_loss = entry_price * stoploss_normal_long
                             current_secondary_stop_gain = entry_price * stopgain_normal_long
                         elif current_position_side == 'sell':
                             current_secondary_stop_loss = entry_price * stoploss_normal_short
                             current_secondary_stop_gain = entry_price * stopgain_normal_short
-                    # Atualizar o CSV
+                    # Update the CSV
                     update_data = {
                         'secondary_stop_loss': current_secondary_stop_loss,
                         'secondary_stop_gain': current_secondary_stop_gain
@@ -622,12 +590,12 @@ while True:
 
             previous_isLateral = isLateral.iloc[-1]
 
-            # Atualizar a última hora de busca
+            # Update the last fetched hour
             last_fetched_hour = current_hour
 
             logging.info(f"Indicators updated at {current_time}")
 
-        # Logar o status do bot a cada 10 minutos
+        # Log bot status every 10 minutes
         if last_log_time is None or (current_time - last_log_time).total_seconds() >= 600:
             current_position, position_info = get_current_position()
             if current_position is None:
@@ -654,7 +622,7 @@ while True:
                 logging.info(f"Bot status: In a {side.lower()} position.")
                 logging.info(f"Current Stoploss: {stop_loss:.2f}, Take Profit: {take_profit:.2f}")
                 pd.set_option('display.max_columns', None)
-                logging.info(f'DF INDICADORES \n{df}')
+                logging.info(f'DF INDICATORS \n{df}')
             last_log_time = current_time
 
         # Fetch the latest price every second
@@ -664,8 +632,8 @@ while True:
             time.sleep(5)
             continue
 
-        # Implementar lógica de entrada e saída em tempo real baseada no latest_price e indicadores
-        # Condições de Long e Short
+        # Implement real-time entry and exit logic based on latest_price and indicators
+        # Long and Short Conditions
         longCondition = (
             crossover(emaShort, emaLong).iloc[-1]
             and (rsi.iloc[-1] < 60)
@@ -679,7 +647,7 @@ while True:
             and trendingMarket
         )
 
-        # Obter posição atual
+        # Obtain current position
         current_position, position_info = get_current_position()
         if current_position is None:
             logging.info("Failed to fetch current position.")
@@ -1418,7 +1386,7 @@ while True:
                         current_secondary_stop_gain = None
                         previous_commission = 0
 
-        # Espera de 1 segundo antes da próxima verificação
+        # Wait 1 second before the next check
         time.sleep(1)
 
     except KeyboardInterrupt:
