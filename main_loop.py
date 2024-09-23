@@ -532,6 +532,7 @@ while True:
 
             # Calculate indicators
             df = calculate_indicators()
+            logging.info(df)
             if df is None:
                 logging.error("Failed to calculate indicators.")
                 time.sleep(10)
