@@ -44,7 +44,7 @@ logging.basicConfig(
 # Check if trade_history.csv exists, if not create it with headers
 trade_history_file = '/app/data/trade_history.csv'
 if not os.path.isfile(trade_history_file):
-    columns = ['trade_id', 'timestamp', 'symbol', 'buy_price', 'sell_price', 'quantity',
+    columns = ['trade_id', 'time', 'symbol', 'buy_price', 'sell_price', 'quantity',
                'stop_loss', 'stop_gain', 'potential_loss', 'potential_gain', 'timeframe',
                'setup', 'outcome', 'commission', 'old_balance', 'new_balance',
                'secondary_stop_loss', 'secondary_stop_gain', 'sell_time', 'type', 'entry_lateral', 'exit_lateral']
@@ -381,7 +381,7 @@ def log_trade_entry(trade_data):
         if os.path.isfile(trade_history_file):
             df_trade_history = pd.read_csv(trade_history_file)
         else:
-            columns = ['trade_id', 'timestamp', 'symbol', 'buy_price', 'sell_price', 'quantity',
+            columns = ['trade_id', 'time', 'symbol', 'buy_price', 'sell_price', 'quantity',
                        'stop_loss', 'stop_gain', 'potential_loss', 'potential_gain', 'timeframe',
                        'setup', 'outcome', 'commission', 'old_balance', 'new_balance',
                        'secondary_stop_loss', 'secondary_stop_gain', 'sell_time', 'type', 'entry_lateral', 'exit_lateral']
@@ -491,7 +491,7 @@ while True:
                 logging.error("Failed to fetch historical klines or received empty data.")
                 time.sleep(10)
                 continue
-            df = df.sort_values('timestamp')
+            df = df.sort_values('time')
 
             # Calcular indicadores
             df = calculate_indicators(df)
@@ -502,7 +502,7 @@ while True:
 
             # Obter a última linha do DataFrame para usar nos cálculos atuais
             last_row = df.iloc[-1]
-            adjusted_timestamp = last_row['timestamp']
+            adjusted_timestamp = last_row['time']
             emaShort = df['emaShort']
             emaLong = df['emaLong']
             rsi = df['rsi']
@@ -667,7 +667,7 @@ while True:
                     potential_gain = ((stop_gain - entry_price) * qty) / old_balance * 100 if old_balance > 0 else 0
                     trade_data = {
                         'trade_id': trade_id,
-                        'timestamp': trade_id,
+                        'time': trade_id,
                         'symbol': symbol,
                         'buy_price': entry_price,
                         'sell_price': '',
@@ -740,7 +740,7 @@ while True:
                     potential_gain = ((entry_price - stop_gain) * qty) / old_balance * 100 if old_balance > 0 else 0
                     trade_data = {
                         'trade_id': trade_id,
-                        'timestamp': trade_id,
+                        'time': trade_id,
                         'symbol': symbol,
                         'buy_price': entry_price,
                         'sell_price': '',
@@ -815,7 +815,7 @@ while True:
                     potential_gain = ((stop_gain - entry_price) * qty) / old_balance * 100 if old_balance > 0 else 0
                     trade_data = {
                         'trade_id': trade_id,
-                        'timestamp': trade_id,
+                        'time': trade_id,
                         'symbol': symbol,
                         'buy_price': entry_price,
                         'sell_price': '',
@@ -887,7 +887,7 @@ while True:
                     potential_gain = ((entry_price - stop_gain) * qty) / old_balance * 100 if old_balance > 0 else 0
                     trade_data = {
                         'trade_id': trade_id,
-                        'timestamp': trade_id,
+                        'time': trade_id,
                         'symbol': symbol,
                         'buy_price': entry_price,
                         'sell_price': '',
