@@ -134,6 +134,9 @@ def open_position(action, symbol='BTCUSDT', leverage=1):
 #@app.route('/', methods=['GET'])
 #def welcome():
 #    return jsonify({'message': 'HELLO'}), 200
+@app.route('/', methods=['GET'])
+def home():
+    return jsonify({'message': 'API teste'}), 200
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
