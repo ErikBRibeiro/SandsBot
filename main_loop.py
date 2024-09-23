@@ -51,6 +51,11 @@ if not os.path.isfile(trade_history_file):
     df_trade_history = pd.DataFrame(columns=columns)
     df_trade_history.to_csv(trade_history_file, index=False)
 
+import pandas as pd
+import os
+import logging
+from datetime import datetime, timedelta
+
 def get_previous_candle_start(dt, interval_minutes):
     """
     Calcula o início do candle anterior com base no intervalo especificado.
@@ -70,6 +75,26 @@ def get_previous_candle_start(dt, interval_minutes):
     return previous_candle_start
 
 def get_historical_klines_and_append(symbol, interval):
+    """
+    Busca o candle anterior da Bybit e adiciona ao CSV, preenchendo com NaN onde necessário.
+    
+    Args:
+        symbol (str): Símbolo do par de negociação (e.g., 'BTCUSD').
+        interval (int): Intervalo de tempo em minutos (e.g., 60 para 1h).
+    
+    Returns:
+        pd.DataFrame: DataFrame contendo os dados do candle anterior ou None em caso de erro.
+    """
+    # Lista completa de colunas do CSV
+    csv_columns = [
+        'time', 'open', 'high', 'low', 'close',
+        'Upper Band', 'Lower Band', 'Middle Band',
+        'EMA Curta (21)', 'EMA Longa (55)',
+        'ADX', 'ADX Plus', 'ADX Minus',
+        'RSI', 'MACD Line', 'Signal Line',
+        'MACD Histogram', 'BandWidth'
+    ]
+    
     try:
         now = datetime.utcnow()
         # Calcula o início do candle anterior
@@ -99,30 +124,45 @@ def get_historical_klines_and_append(symbol, interval):
         # Obtém o candle anterior
         kline_data = kline_list[0]
         
-        # Cria o DataFrame com o candle anterior
-        df = pd.DataFrame([kline_data], columns=[
-            'timestamp', 'open', 'high', 'low', 'close', 'volume', 'turnover'
-        ])
-
-        # Processa os dados do DataFrame
-        df['timestamp'] = pd.to_numeric(df['timestamp'], errors='coerce')
-        df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
-        numeric_columns = ['open', 'high', 'low', 'close', 'volume', 'turnover']
-        df[numeric_columns] = df[numeric_columns].astype(float)
-
+        # Cria um dicionário para a nova linha com todas as colunas, preenchendo com NaN
+        new_row = {column: float('nan') for column in csv_columns}
+        
+        # Preenche as colunas disponíveis com os dados retornados
+        new_row['time'] = pd.to_datetime(int(kline_data['timestamp']), unit='s')  # Ajuste conforme a unidade retornada
+        new_row['open'] = float(kline_data['open'])
+        new_row['high'] = float(kline_data['high'])
+        new_row['low'] = float(kline_data['low'])
+        new_row['close'] = float(kline_data['close'])
+        
+        # Se existir, adicione volume e turnover (ajuste conforme necessário)
+        # Se o CSV não tiver essas colunas, ignore
+        # new_row['volume'] = float(kline_data.get('volume', float('nan')))
+        # new_row['turnover'] = float(kline_data.get('turnover', float('nan')))
+        
+        # Cria o DataFrame com a nova linha
+        df_new = pd.DataFrame([new_row], columns=csv_columns)
+        
         # Define o caminho do arquivo CSV
         csv_file = '/app/data/dados_atualizados.csv'
         
         # Adiciona o candle ao CSV
         if os.path.exists(csv_file):
-            df.to_csv(csv_file, mode='a', header=False, index=False)
+            # Verifica se o CSV já possui as colunas definidas
+            existing_columns = pd.read_csv(csv_file, nrows=0).columns.tolist()
+            # Se houver diferenças nas colunas, alinha-as
+            if existing_columns != csv_columns:
+                logging.warning("Diferença nas colunas do CSV. Ajustando para alinhar as colunas.")
+                df_new = df_new[existing_columns]
+            df_new.to_csv(csv_file, mode='a', header=False, index=False)
         else:
-            df.to_csv(csv_file, index=False)
+            df_new.to_csv(csv_file, mode='w', header=True, index=False)
         
-        return df
+        return df_new
     except Exception as e:
         logging.error(f"Exception in get_historical_klines_and_append: {e}")
+        logging.error(traceback.format_exc())
         return None
+
 
 def macd_func(series, fast_period, slow_period, signal_period):
     ema_fast = talib.EMA(series, fast_period)
