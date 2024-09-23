@@ -518,6 +518,27 @@ while True:
         current_minute = current_time.minute
         current_second = current_time.second
 
+        # Load the indicators and data
+        df = pd.read_csv('/app/data/dados_atualizados.csv')
+        df = df.sort_values('time').reset_index(drop=True)
+        df = ensure_isLateral_boolean(df)
+
+        # Obtain the last row of the DataFrame for current calculations
+        last_row = df.iloc[-1]
+        adjusted_timestamp = last_row['time']
+        emaShort = df['emaShort']
+        emaLong = df['emaLong']
+        rsi = df['rsi']
+        macdHist = df['macdHist']
+        adx = df['adx']
+        isLateral = df['isLateral']
+        upperBand = df['upperBand']
+        lowerBand = df['lowerBand']
+        bandWidth = df['bandWidth']
+
+        # Determine if the market is trending
+        trendingMarket = adx.iloc[-1] >= 12  # adxThreshold
+
         # Check if it's time to fetch klines (e.g., at the beginning of each hour)
         if last_fetched_hour != current_hour and current_minute == 0 and current_second <= 5:
             # Fetch the latest 1-hour kline data
@@ -537,7 +558,7 @@ while True:
             # Ensure 'isLateral' is boolean
             df = ensure_isLateral_boolean(df)
 
-            # Obtain the last row of the DataFrame for current calculations
+            # Re-assign the variables after updating indicators
             last_row = df.iloc[-1]
             adjusted_timestamp = last_row['time']
             emaShort = df['emaShort']
