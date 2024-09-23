@@ -131,6 +131,10 @@ def open_position(action, symbol='BTCUSDT', leverage=1):
     except Exception as e:
         logging.error(f"Erro ao executar ordem: {e}")
 
+#@app.route('/', methods=['GET'])
+#def welcome():
+#    return jsonify({'message': 'HELLO'}), 200
+
 @app.route('/webhook', methods=['POST'])
 def webhook():
     start_time = time.time()
