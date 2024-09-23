@@ -86,7 +86,7 @@ def get_historical_klines_and_append(symbol, interval):
     """
     # Lista completa de colunas do CSV
     csv_columns = [
-        'timestamp', 'open', 'high', 'low', 'close',
+        'time', 'open', 'high', 'low', 'close',
         'Upper Band', 'Lower Band', 'Middle Band',
         'EMA Curta (21)', 'EMA Longa (55)',
         'ADX', 'ADX Plus', 'ADX Minus',
@@ -142,8 +142,8 @@ def get_historical_klines_and_append(symbol, interval):
         new_row = {column: float('nan') for column in csv_columns}
         
         # Preenche as colunas disponíveis com os dados retornados
-        timestamp = kline_data[0]  # Mantém o timestamp original
-        new_row['timestamp'] = timestamp
+        timestamp = int(kline_data[0])  # Mantém o timestamp como inteiro
+        new_row['time'] = timestamp
         new_row['open'] = float(kline_data[1])
         new_row['high'] = float(kline_data[2])
         new_row['low'] = float(kline_data[3])
