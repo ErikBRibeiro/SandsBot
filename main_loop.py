@@ -87,11 +87,11 @@ def get_historical_klines_and_append(symbol, interval):
     # Lista completa de colunas do CSV
     csv_columns = [
         'time', 'open', 'high', 'low', 'close',
-        'Upper Band', 'Lower Band', 'Middle Band',
-        'EMA Curta (21)', 'EMA Longa (55)',
-        'ADX', 'ADX Plus', 'ADX Minus',
-        'RSI', 'MACD Line', 'Signal Line',
-        'MACD Histogram', 'BandWidth'
+        'upperBand', 'lowerBand', 'middleBand',
+        'emaShort', 'emaLong',
+        'adx', 'adxPlus ', 'adxMinus',
+        'rsi', 'macdLine', 'signalLine',
+        'macdHist', 'bandWidth'
     ]
 
     try:
@@ -292,17 +292,17 @@ def calculate_indicators(df):
         isLateral = bandWidth < lateralThreshold
 
         # Mapeamento dos indicadores para os nomes das colunas do CSV
-        df['EMA Curta (21)'] = emaShort
-        df['EMA Longa (55)'] = emaLong
-        df['RSI'] = rsi
-        df['MACD Histogram'] = macdHist
-        df['ADX'] = adx
-        df['ADX Plus'] = plus_di
-        df['ADX Minus'] = minus_di
-        df['Upper Band'] = upperBand
-        df['Middle Band'] = middleBand
-        df['Lower Band'] = lowerBand
-        df['BandWidth'] = bandWidth
+        df['emaShort'] = emaShort
+        df['emaLong'] = emaLong
+        df['rsi'] = rsi
+        df['macdHist'] = macdHist
+        df['adx'] = adx
+        df['plus_di'] = plus_di
+        df['minus_di'] = minus_di
+        df['upperBand'] = upperBand
+        df['middleBand'] = middleBand
+        df['lowerBand'] = lowerBand
+        df['bandWidth'] = bandWidth
         # 'isLateral' não está presente no CSV. Se desejar adicioná-la, descomente a linha abaixo e adicione a coluna no CSV.
         # df['isLateral'] = isLateral
 
@@ -328,9 +328,9 @@ def calculate_indicators(df):
 
         # Lista das colunas de indicadores para atualização
         indicator_columns = [
-            'EMA Curta (21)', 'EMA Longa (55)', 'RSI', 'MACD Histogram',
-            'ADX', 'ADX Plus', 'ADX Minus', 'Upper Band', 'Middle Band',
-            'Lower Band', 'BandWidth'
+            'emaShort', 'emaLong', 'rsi', 'macdHist',
+            'adx', 'plus_di', 'minus_di', 'upperBand', 'middleBand',
+            'lowerBand', 'bandWidth'
         ]
 
         # Atualizar as colunas de indicadores na última linha do CSV
