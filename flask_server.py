@@ -9,30 +9,42 @@ from dotenv import load_dotenv, find_dotenv
 
 app = Flask(__name__)
 
-# Carregar API key e secret do arquivo .env
-load_dotenv(find_dotenv())
-BYBIT_API_KEY = os.getenv('BYBIT_API_KEY')
-BYBIT_API_SECRET = os.getenv('BYBIT_API_SECRET')
-
-if not BYBIT_API_KEY or not BYBIT_API_SECRET:
-    logging.error("API_KEY and/or API_SECRET not found. Please check your .env file.")
-    sys.exit(1)
-
-# Chave secreta para autenticação de Webhook
-SECRET_KEY = '1221'
-
-# Inicializar a sessão da API (adicione testnet=True se estiver usando a Testnet)
-session = HTTP(
-    api_key=BYBIT_API_KEY,
-    api_secret=BYBIT_API_SECRET,
-    # testnet=True  # Descomente esta linha se estiver usando a Testnet
-)
-
 # Configuração básica de logging para o console
 logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s %(levelname)s %(message)s')
 
-def get_usdt_balance():
+# Carregar as variáveis de ambiente do arquivo .env
+load_dotenv(find_dotenv())
+
+# Chave secreta para autenticação de Webhook
+SECRET_KEY = os.getenv('SECRET_KEY', '1221')  # Padrão para '1221' se não estiver definido
+
+# Dicionário para armazenar as sessões da API
+api_sessions = {}
+
+# Lista de contas na ordem desejada
+accounts_order = ['ERIK', 'NATAN']
+
+# Criar sessões da API para cada conta
+for account in accounts_order:
+    api_key = os.getenv(f'BYBIT_API_KEY_{account}')
+    api_secret = os.getenv(f'BYBIT_API_SECRET_{account}')
+    
+    if not api_key or not api_secret:
+        logging.error(f"API_KEY and/or API_SECRET not found for account {account}. Please check your .env file.")
+        sys.exit(1)
+    
+    # Inicializar a sessão da API
+    session = HTTP(
+        api_key=api_key,
+        api_secret=api_secret,
+        # testnet=True  # Descomente esta linha se estiver usando a Testnet
+    )
+    
+    # Armazenar a sessão no dicionário
+    api_sessions[account] = session
+
+def get_usdt_balance(session):
     try:
         response = session.get_wallet_balance(accountType='UNIFIED', coin='USDT')
         if response['retCode'] == 0:
@@ -54,6 +66,8 @@ def get_usdt_balance():
 
 def get_current_price(symbol='BTCUSDT'):
     try:
+        # Usamos a sessão da primeira conta apenas para obter o preço
+        session = list(api_sessions.values())[0]
         response = session.get_tickers(
             category='linear',
             symbol=symbol
@@ -75,7 +89,7 @@ def calculate_qty(usdt_balance, price, leverage=1):
     qty = np.floor(qty * 1000) / 1000  # Ajusta para 3 casas decimais
     return str(qty)
 
-def get_current_position(symbol='BTCUSDT'):
+def get_current_position(session, symbol='BTCUSDT'):
     try:
         response = session.get_positions(
             category='linear',
@@ -94,7 +108,7 @@ def get_current_position(symbol='BTCUSDT'):
         logging.error(f"Erro ao obter posição: {e}")
         return None
 
-def close_position(position):
+def close_position(session, position):
     try:
         if position['side'] == 'Buy':
             side = 'Sell'
@@ -120,9 +134,9 @@ def close_position(position):
     except Exception as e:
         logging.error(f"Erro ao fechar posição: {e}")
 
-def open_position(action, symbol='BTCUSDT', leverage=1):
+def open_position(session, action, symbol='BTCUSDT', leverage=1):
     try:
-        usdt_balance = get_usdt_balance()
+        usdt_balance = get_usdt_balance(session)
         price = get_current_price(symbol)
         if price == 0.0:
             logging.error("Preço inválido. Abortando operação.")
@@ -171,44 +185,49 @@ def webhook():
         logging.warning("Ação inválida recebida.")
         return jsonify({'message': 'Ação inválida'}), 400
 
-    # Obter a posição atual
-    position = get_current_position(symbol)
+    # Iterar sobre as contas na ordem desejada
+    for account in accounts_order:
+        logging.info(f"Processando ação para a conta: {account}")
+        session = api_sessions[account]
 
-    if action == 'long':
-        if position:
-            if position['side'] == 'Sell':
-                # Fechar posição short antes de abrir long
-                close_position(position)
-                open_position('long', symbol, leverage)
-            elif position['side'] == 'Buy':
-                logging.info("Já está em posição long. Nenhuma ação necessária.")
+        # Obter a posição atual para esta conta
+        position = get_current_position(session, symbol)
+
+        if action == 'long':
+            if position:
+                if position['side'] == 'Sell':
+                    # Fechar posição short antes de abrir long
+                    close_position(session, position)
+                    open_position(session, 'long', symbol, leverage)
+                elif position['side'] == 'Buy':
+                    logging.info(f"Conta {account}: Já está em posição long. Nenhuma ação necessária.")
+                else:
+                    logging.warning(f"Conta {account}: Lado da posição desconhecido.")
             else:
-                logging.warning("Lado da posição desconhecido.")
-        else:
-            # Nenhuma posição aberta, abrir long
-            open_position('long', symbol, leverage)
+                # Nenhuma posição aberta, abrir long
+                open_position(session, 'long', symbol, leverage)
 
-    elif action == 'short':
-        if position:
-            if position['side'] == 'Buy':
-                # Fechar posição long antes de abrir short
-                close_position(position)
-                open_position('short', symbol, leverage)
-            elif position['side'] == 'Sell':
-                logging.info("Já está em posição short. Nenhuma ação necessária.")
+        elif action == 'short':
+            if position:
+                if position['side'] == 'Buy':
+                    # Fechar posição long antes de abrir short
+                    close_position(session, position)
+                    open_position(session, 'short', symbol, leverage)
+                elif position['side'] == 'Sell':
+                    logging.info(f"Conta {account}: Já está em posição short. Nenhuma ação necessária.")
+                else:
+                    logging.warning(f"Conta {account}: Lado da posição desconhecido.")
             else:
-                logging.warning("Lado da posição desconhecido.")
-        else:
-            # Nenhuma posição aberta, abrir short
-            open_position('short', symbol, leverage)
+                # Nenhuma posição aberta, abrir short
+                open_position(session, 'short', symbol, leverage)
 
-    elif action == 'exit':
-        if position:
-            # Fechar posição aberta
-            close_position(position)
-            logging.info("Posição fechada com sucesso.")
-        else:
-            logging.info("Nenhuma posição aberta para fechar.")
+        elif action == 'exit':
+            if position:
+                # Fechar posição aberta
+                close_position(session, position)
+                logging.info(f"Conta {account}: Posição fechada com sucesso.")
+            else:
+                logging.info(f"Conta {account}: Nenhuma posição aberta para fechar.")
 
     end_time = time.time()
     latency = end_time - start_time
