@@ -1,30 +1,23 @@
 from flask import Flask, request, jsonify
 from pybit.unified_trading import HTTP
-import os
 import time
 import logging
 import numpy as np
-import sys
-from dotenv import load_dotenv, find_dotenv
 
 app = Flask(__name__)
 
-# Load API key and secret from .env file
-load_dotenv(find_dotenv())
-API_KEY = os.getenv('BYBIT_API_KEY')
-API_SECRET = os.getenv('BYBIT_API_SECRET')
-
-if not API_KEY or not API_SECRET:
-    logging.error("API_KEY and/or API_SECRET not found. Please check your .env file.")
-    sys.exit(1)
+# Configurações da API da Bybit
+BYBIT_API_KEY = 'SEU_API_KEY'
+BYBIT_API_SECRET = 'SEU_API_SECRET'
 
 # Chave secreta para autenticação de Webhook
 SECRET_KEY = '1221'
 
-# Inicializar a sessão da API
+# Inicializar a sessão da API (adicionando testnet=True se estiver usando a Testnet)
 session = HTTP(
-    api_key=API_KEY,
-    api_secret=API_SECRET
+    api_key=BYBIT_API_KEY,
+    api_secret=BYBIT_API_SECRET,
+    # testnet=True  # Descomente esta linha se estiver usando a Testnet
 )
 
 # Configuração básica de logging para o console
@@ -33,7 +26,7 @@ logging.basicConfig(level=logging.INFO,
 
 def get_usdt_balance():
     try:
-        response = session.get_wallet_balance(accountType='CONTRACT', coin='USDT')
+        response = session.get_wallet_balance(coin='USDT')
         if response['retCode'] == 0:
             usdt_balance = float(response['result']['list'][0]['coin'][0]['availableToWithdraw'])
             return usdt_balance
@@ -64,8 +57,8 @@ def calculate_qty(usdt_balance, price, leverage=1):
     if price == 0:
         return 0
     qty = usdt_balance * leverage / price
-    qty = np.floor(qty)
-    return qty
+    qty = np.floor(qty * 1000) / 1000  # Ajusta para 3 casas decimais
+    return str(qty)
 
 def get_current_position(symbol='BTCUSDT'):
     try:
@@ -103,8 +96,7 @@ def close_position(position):
             orderType='Market',
             qty=position['size'],
             timeInForce='GTC',
-            reduceOnly=True,
-            positionIdx=0  # Adicione este parâmetro se necessário
+            reduceOnly=True
         )
         if order['retCode'] == 0:
             logging.info(f"Posição {position['side']} fechada com sucesso.")
@@ -122,7 +114,7 @@ def open_position(action, symbol='BTCUSDT', leverage=1):
             return
 
         qty = calculate_qty(usdt_balance, price, leverage)
-        if qty <= 0:
+        if float(qty) <= 0:
             logging.error("Quantidade calculada inválida. Abortando operação.")
             return
 
@@ -134,8 +126,7 @@ def open_position(action, symbol='BTCUSDT', leverage=1):
             orderType='Market',
             qty=qty,
             timeInForce='GTC',
-            reduceOnly=False,
-            positionIdx=0  # Adicione este parâmetro se necessário
+            reduceOnly=False
         )
         if order['retCode'] == 0:
             logging.info(f"Ordem de {side} executada com sucesso. Qty: {qty}")
@@ -159,24 +150,11 @@ def webhook():
 
     action = data.get('action')
     symbol = data.get('symbol', 'BTCUSDT')  # Pode ajustar conforme necessário
-    leverage = int(data.get('leverage', 1))  # Alavancagem padrão
+    leverage = 1  # Alavancagem será sempre 1
 
     if action not in ['long', 'short']:
         logging.warning("Ação inválida recebida.")
         return jsonify({'message': 'Ação inválida'}), 400
-
-    # Ajustar a alavancagem (se necessário)
-    try:
-        leverage_response = session.set_leverage(
-            category='linear',
-            symbol=symbol,
-            buyLeverage=leverage,
-            sellLeverage=leverage
-        )
-        if leverage_response['retCode'] != 0:
-            logging.error(f"Erro ao ajustar alavancagem: {leverage_response['retMsg']}")
-    except Exception as e:
-        logging.error(f"Erro ao ajustar alavancagem: {e}")
 
     # Obter a posição atual
     position = get_current_position(symbol)
