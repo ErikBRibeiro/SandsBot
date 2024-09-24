@@ -5,6 +5,7 @@ import logging
 import numpy as np
 import os
 import sys
+import pandas as pd  # Importar pandas
 from dotenv import load_dotenv, find_dotenv
 
 app = Flask(__name__)
@@ -19,13 +20,17 @@ load_dotenv(find_dotenv())
 # Chave secreta para autenticação de Webhook
 SECRET_KEY = os.getenv('SECRET_KEY', '1221')  # Padrão para '1221' se não estiver definido
 
-# Dicionário para armazenar as sessões da API
-api_sessions = {}
-
 # Lista de contas na ordem desejada
-accounts_order = ['ERIK', 'NATAN']
+accounts_order = ['FERNANDO', 'ERIK', 'NATAN']
 
-# Criar sessões da API para cada conta
+# Dicionário para armazenar as sessões da API e dados da conta
+api_sessions = {}
+account_data = {}
+
+# Caminho para salvar o arquivo CSV
+csv_file_path = '/app/data/trade_history.csv'
+
+# Criar sessões da API para cada conta e inicializar dados
 for account in accounts_order:
     api_key = os.getenv(f'BYBIT_API_KEY_{account}')
     api_secret = os.getenv(f'BYBIT_API_SECRET_{account}')
@@ -43,6 +48,13 @@ for account in accounts_order:
     
     # Armazenar a sessão no dicionário
     api_sessions[account] = session
+    
+    # Inicializar dados da conta
+    account_data[account] = {
+        'entry_balance': None,
+        'entry_time': None,
+        'entry_price': None
+    }
 
 def get_usdt_balance(session):
     try:
@@ -164,35 +176,72 @@ def open_position(session, action, symbol='BTCUSDT', leverage=1):
     except Exception as e:
         logging.error(f"Erro ao executar ordem: {e}")
 
+def write_to_csv(data_row):
+    # Definir os nomes das colunas
+    columns = ['api_owner', 'alert_time', 'action_time', 'type', 'btc_price', 'balance', 'outcome', 'PnL', 'latency']
+    
+    # Criar um DataFrame com a linha de dados
+    df_new = pd.DataFrame([data_row], columns=columns)
+    
+    # Verificar se o arquivo CSV já existe
+    if os.path.isfile(csv_file_path):
+        # Ler o arquivo existente
+        df_existing = pd.read_csv(csv_file_path)
+        # Concatenar o novo registro
+        df_combined = pd.concat([df_existing, df_new], ignore_index=True)
+    else:
+        # Se não existe, o DataFrame combinado é apenas o novo registro
+        df_combined = df_new
+    
+    try:
+        # Salvar o DataFrame combinado no arquivo CSV
+        df_combined.to_csv(csv_file_path, index=False)
+    except Exception as e:
+        logging.error(f"Erro ao escrever no arquivo CSV: {e}")
+
 @app.route('/webhook', methods=['POST'])
 def webhook():
-    start_time = time.time()
+    webhook_start_time = time.time()
+    alert_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())
     
     data = request.get_json()
     logging.info(f"Dados recebidos: {data}")
-
+    
     # Verificação de autenticação
     received_secret = data.get('secret')
     if received_secret != SECRET_KEY:
         logging.warning("Autenticação falhou.")
         return jsonify({'message': 'Autenticação falhou'}), 403
-
+    
     action = data.get('action')
     symbol = data.get('symbol', 'BTCUSDT')  # Pode ajustar conforme necessário
     leverage = 1  # Alavancagem será sempre 1
-
+    
     if action not in ['long', 'short', 'exit']:
         logging.warning("Ação inválida recebida.")
         return jsonify({'message': 'Ação inválida'}), 400
-
+    
+    # Obter o preço atual do BTC
+    btc_price = get_current_price(symbol)
+    if btc_price == 0.0:
+        logging.error("Preço inválido. Abortando operação.")
+        return jsonify({'message': 'Erro ao obter preço'}), 500
+    
     # Iterar sobre as contas na ordem desejada
     for account in accounts_order:
+        account_start_time = time.time()
         logging.info(f"Processando ação para a conta: {account}")
         session = api_sessions[account]
-
+        
+        # Obter o saldo antes da ação
+        usdt_balance_before = get_usdt_balance(session)
+        
         # Obter a posição atual para esta conta
         position = get_current_position(session, symbol)
-
+        
+        outcome = 0.0  # Inicializar outcome
+        pnl = 0.0      # Inicializar PnL
+        
         if action == 'long':
             if position:
                 if position['side'] == 'Sell':
@@ -206,7 +255,15 @@ def webhook():
             else:
                 # Nenhuma posição aberta, abrir long
                 open_position(session, 'long', symbol, leverage)
-
+            
+            # Após abrir a posição, obter o saldo atual
+            usdt_balance_after = get_usdt_balance(session)
+            
+            # Registrar dados de entrada
+            account_data[account]['entry_balance'] = usdt_balance_after
+            account_data[account]['entry_time'] = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())
+            account_data[account]['entry_price'] = btc_price
+            
         elif action == 'short':
             if position:
                 if position['side'] == 'Buy':
@@ -220,7 +277,15 @@ def webhook():
             else:
                 # Nenhuma posição aberta, abrir short
                 open_position(session, 'short', symbol, leverage)
-
+            
+            # Após abrir a posição, obter o saldo atual
+            usdt_balance_after = get_usdt_balance(session)
+            
+            # Registrar dados de entrada
+            account_data[account]['entry_balance'] = usdt_balance_after
+            account_data[account]['entry_time'] = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())
+            account_data[account]['entry_price'] = btc_price
+            
         elif action == 'exit':
             if position:
                 # Fechar posição aberta
@@ -228,12 +293,50 @@ def webhook():
                 logging.info(f"Conta {account}: Posição fechada com sucesso.")
             else:
                 logging.info(f"Conta {account}: Nenhuma posição aberta para fechar.")
-
-    end_time = time.time()
-    latency = end_time - start_time
-    logging.info(f"Latência total: {latency:.3f} segundos")
-
-    return jsonify({'message': 'Ação executada', 'latency': latency}), 200
+            
+            # Após fechar a posição, obter o saldo atual
+            usdt_balance_after = get_usdt_balance(session)
+            
+            # Calcular o outcome e PnL se houver um saldo de entrada registrado
+            entry_balance = account_data[account]['entry_balance']
+            if entry_balance is not None and entry_balance > 0:
+                pnl = usdt_balance_after - entry_balance
+                outcome = (pnl / entry_balance) * 100
+                # Resetar os dados de entrada
+                account_data[account]['entry_balance'] = None
+                account_data[account]['entry_time'] = None
+                account_data[account]['entry_price'] = None
+            else:
+                logging.warning(f"Conta {account}: Saldo de entrada não registrado. Não é possível calcular o outcome.")
+                outcome = 0.0  # Ou você pode decidir não registrar o outcome neste caso
+                pnl = 0.0      # PnL não pode ser calculado
+        
+        # Tempo de ação e latência
+        action_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())
+        account_end_time = time.time()
+        latency = account_end_time - account_start_time
+        
+        # Preparar dados para o CSV
+        data_row = {
+            'api_owner': account,
+            'alert_time': alert_time,
+            'action_time': action_time,
+            'type': action,
+            'btc_price': btc_price,
+            'balance': usdt_balance_after,
+            'outcome': outcome,
+            'PnL': pnl,
+            'latency': latency
+        }
+        
+        # Escrever os dados no arquivo CSV
+        write_to_csv(data_row)
+    
+    webhook_end_time = time.time()
+    total_latency = webhook_end_time - webhook_start_time
+    logging.info(f"Latência total: {total_latency:.3f} segundos")
+    
+    return jsonify({'message': 'Ação executada', 'latency': total_latency}), 200
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
