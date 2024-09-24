@@ -638,7 +638,7 @@ while True:
                 logging.info(f"Bot status: In a {side.lower()} position.")
                 logging.info(f"Current Stoploss: {stop_loss:.2f}, Take Profit: {take_profit:.2f}")
                 pd.set_option('display.max_columns', None)
-                logging.info(f'DF INDICATORS \n{df}')
+                # logging.info(f'DF INDICATORS \n{df}')
             last_log_time = current_time
 
         # Fetch the latest price every second
