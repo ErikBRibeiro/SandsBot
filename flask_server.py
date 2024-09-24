@@ -22,7 +22,7 @@ session = HTTP(
 )
 
 # Configuração básica de logging
-logging.basicConfig(level=logging.INFO, filename='trading_bot.log',
+logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s %(levelname)s %(message)s')
 
 def get_usdt_balance():
