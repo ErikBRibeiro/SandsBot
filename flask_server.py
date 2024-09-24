@@ -21,7 +21,7 @@ load_dotenv(find_dotenv())
 SECRET_KEY = os.getenv('SECRET_KEY', '1221')  # Padrão para '1221' se não estiver definido
 
 # Lista de contas na ordem desejada
-accounts_order = ['FERNANDO', 'PABLO', 'HAMUCHY', 'ERIK']
+accounts_order = ['FERNANDO', 'ERIK', 'NATAN']
 
 # Dicionário para armazenar as sessões da API e dados da conta
 api_sessions = {}
@@ -75,6 +75,13 @@ def get_usdt_balance(session):
     except Exception as e:
         logging.error(f"Erro ao obter saldo: {e}")
         return 0.0
+
+# Após inicializar as sessões, obter e registrar o saldo de cada conta
+for account in accounts_order:
+    session = api_sessions[account]
+    balance = get_usdt_balance(session)
+    logging.info(f"Saldo inicial da conta {account}: {balance} USDT")
+
 
 def get_current_price(symbol='BTCUSDT'):
     try:
