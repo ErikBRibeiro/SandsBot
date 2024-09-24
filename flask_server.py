@@ -9,7 +9,7 @@ from dotenv import load_dotenv, find_dotenv
 
 app = Flask(__name__)
 
-# Load API key and secret from .env file
+# Carregar API key e secret do arquivo .env
 load_dotenv(find_dotenv())
 BYBIT_API_KEY = os.getenv('BYBIT_API_KEY')
 BYBIT_API_SECRET = os.getenv('BYBIT_API_SECRET')
@@ -21,7 +21,7 @@ if not BYBIT_API_KEY or not BYBIT_API_SECRET:
 # Chave secreta para autenticação de Webhook
 SECRET_KEY = '1221'
 
-# Inicializar a sessão da API (adicionando testnet=True se estiver usando a Testnet)
+# Inicializar a sessão da API (adicione testnet=True se estiver usando a Testnet)
 session = HTTP(
     api_key=BYBIT_API_KEY,
     api_secret=BYBIT_API_SECRET,
@@ -34,16 +34,17 @@ logging.basicConfig(level=logging.INFO,
 
 # Teste uma chamada simples, como obter o saldo
 try:
-    response = session.get_wallet_balance(coin='USDT')
+    response = session.get_wallet_balance(accountType='UNIFIED', coin='USDT')
     logging.info(response)
 except Exception as e:
     logging.info(f"Erro ao obter saldo: {e}")
 
 def get_usdt_balance():
     try:
-        response = session.get_wallet_balance(coin='USDT')
+        response = session.get_wallet_balance(accountType='UNIFIED', coin='USDT')
         if response['retCode'] == 0:
-            usdt_balance = float(response['result']['list'][0]['coin'][0]['availableToWithdraw'])
+            # Ajuste na extração do saldo disponível
+            usdt_balance = float(response['result']['list'][0]['cashBalance'])
             return usdt_balance
         else:
             logging.error(f"Erro ao obter saldo: {response['retMsg']}")
