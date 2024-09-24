@@ -8,9 +8,8 @@ import numpy as np
 app = Flask(__name__)
 
 # Configurações da API da Bybit
-BYBIT_API_KEY = 'a4Ps0ivR7ErkobhWRn'
-BYBIT_API_SECRET = 'BhCNOpL0ttkwhHpq0QryXVrPYdx7yJLVvGQ0'
-# BYBIT_ENDPOINT = 'https://api.bybit.com'  # Verifique o endpoint correto na documentação da Bybit
+BYBIT_API_KEY = 'SEU_API_KEY'
+BYBIT_API_SECRET = 'SEU_API_SECRET'
 
 # Chave secreta para autenticação de Webhook
 SECRET_KEY = '1221'
@@ -21,18 +20,18 @@ session = HTTP(
     api_secret=BYBIT_API_SECRET
 )
 
-# Configuração básica de logging
+# Configuração básica de logging para o console
 logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s %(levelname)s %(message)s')
 
 def get_usdt_balance():
     try:
-        response = session.get_wallet_balance(coin='USDT')
-        if response['ret_code'] == 0:
-            usdt_balance = float(response['result']['USDT']['available_balance'])
+        response = session.get_wallet_balance(accountType='CONTRACT', coin='USDT')
+        if response['retCode'] == 0:
+            usdt_balance = float(response['result']['list'][0]['coin'][0]['availableToWithdraw'])
             return usdt_balance
         else:
-            logging.error(f"Erro ao obter saldo: {response['ret_msg']}")
+            logging.error(f"Erro ao obter saldo: {response['retMsg']}")
             return 0.0
     except Exception as e:
         logging.error(f"Erro ao obter saldo: {e}")
@@ -40,39 +39,42 @@ def get_usdt_balance():
 
 def get_current_price(symbol='BTCUSDT'):
     try:
-        response = session.latest_information_for_symbol(symbol=symbol)
-        if response['ret_code'] == 0:
-            price = float(response['result'][0]['last_price'])
+        response = session.get_tickers(
+            category='linear',
+            symbol=symbol
+        )
+        if response['retCode'] == 0:
+            price = float(response['result']['list'][0]['lastPrice'])
             return price
         else:
-            logging.error(f"Erro ao obter preço: {response['ret_msg']}")
+            logging.error(f"Erro ao obter preço: {response['retMsg']}")
             return 0.0
     except Exception as e:
         logging.error(f"Erro ao obter preço: {e}")
         return 0.0
 
 def calculate_qty(usdt_balance, price, leverage=1):
-    """
-    Calcula a quantidade de contratos baseando-se no saldo em USDT e no preço atual.
-    """
-    # Evitar dividir por zero
     if price == 0:
         return 0
-
-    # Calcular quantidade de contratos
     qty = usdt_balance * leverage / price
-    qty = np.floor(qty)  # Ajuste a precisão conforme necessário
+    qty = np.floor(qty)
     return qty
 
 def get_current_position(symbol='BTCUSDT'):
     try:
-        response = session.get_positions(symbol=symbol)
-        if response['ret_code'] == 0:
+        response = session.get_positions(
+            category='linear',
+            symbol=symbol
+        )
+        if response['retCode'] == 0:
             positions = response['result']['list']
             for pos in positions:
-                if pos['symbol'] == symbol and pos['size'] > 0:
+                if pos['symbol'] == symbol and float(pos['size']) > 0:
                     return pos
-        return None
+            return None
+        else:
+            logging.error(f"Erro ao obter posição: {response['retMsg']}")
+            return None
     except Exception as e:
         logging.error(f"Erro ao obter posição: {e}")
         return None
@@ -87,18 +89,20 @@ def close_position(position):
             logging.warning("Lado da posição desconhecido.")
             return
 
-        order = session.place_active_order(
+        order = session.place_order(
+            category='linear',
             symbol=position['symbol'],
             side=side,
-            order_type='Market',
+            orderType='Market',
             qty=position['size'],
-            time_in_force='GoodTillCancel',
-            reduce_only=True
+            timeInForce='GTC',
+            reduceOnly=True,
+            positionIdx=0  # Adicione este parâmetro se necessário
         )
-        if order['ret_code'] == 0:
+        if order['retCode'] == 0:
             logging.info(f"Posição {position['side']} fechada com sucesso.")
         else:
-            logging.error(f"Erro ao fechar posição: {order['ret_msg']}")
+            logging.error(f"Erro ao fechar posição: {order['retMsg']}")
     except Exception as e:
         logging.error(f"Erro ao fechar posição: {e}")
 
@@ -109,34 +113,29 @@ def open_position(action, symbol='BTCUSDT', leverage=1):
         if price == 0.0:
             logging.error("Preço inválido. Abortando operação.")
             return
-        
+
         qty = calculate_qty(usdt_balance, price, leverage)
         if qty <= 0:
             logging.error("Quantidade calculada inválida. Abortando operação.")
             return
-        
+
         side = 'Buy' if action == 'long' else 'Sell'
-        order = session.place_active_order(
+        order = session.place_order(
+            category='linear',
             symbol=symbol,
             side=side,
-            order_type='Market',
+            orderType='Market',
             qty=qty,
-            time_in_force='GoodTillCancel',
-            reduce_only=False
+            timeInForce='GTC',
+            reduceOnly=False,
+            positionIdx=0  # Adicione este parâmetro se necessário
         )
-        if order['ret_code'] == 0:
+        if order['retCode'] == 0:
             logging.info(f"Ordem de {side} executada com sucesso. Qty: {qty}")
         else:
-            logging.error(f"Erro ao executar ordem: {order['ret_msg']}")
+            logging.error(f"Erro ao executar ordem: {order['retMsg']}")
     except Exception as e:
         logging.error(f"Erro ao executar ordem: {e}")
-
-#@app.route('/', methods=['GET'])
-#def welcome():
-#    return jsonify({'message': 'HELLO'}), 200
-@app.route('/', methods=['GET'])
-def home():
-    return jsonify({'message': 'API teste'}), 200
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
@@ -158,6 +157,19 @@ def webhook():
     if action not in ['long', 'short']:
         logging.warning("Ação inválida recebida.")
         return jsonify({'message': 'Ação inválida'}), 400
+
+    # Ajustar a alavancagem (se necessário)
+    try:
+        leverage_response = session.set_leverage(
+            category='linear',
+            symbol=symbol,
+            buyLeverage=leverage,
+            sellLeverage=leverage
+        )
+        if leverage_response['retCode'] != 0:
+            logging.error(f"Erro ao ajustar alavancagem: {leverage_response['retMsg']}")
+    except Exception as e:
+        logging.error(f"Erro ao ajustar alavancagem: {e}")
 
     # Obter a posição atual
     position = get_current_position(symbol)
@@ -197,7 +209,4 @@ def webhook():
     return jsonify({'message': 'Ação executada', 'latency': latency}), 200
 
 if __name__ == '__main__':
-    # Se estiver rodando localmente, use ngrok para expor a porta 5000
-    # Exemplo: ngrok http 5000
-    # Certifique-se de configurar a URL do ngrok no TradingView
     app.run(host='0.0.0.0', port=5000)
