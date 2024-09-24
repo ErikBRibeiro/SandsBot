@@ -32,13 +32,6 @@ session = HTTP(
 logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s %(levelname)s %(message)s')
 
-# Teste uma chamada simples, como obter o saldo
-try:
-    response = session.get_wallet_balance(accountType='UNIFIED', coin='USDT')
-    logging.info(f"Resposta da API: {response}")
-except Exception as e:
-    logging.info(f"Erro ao obter saldo: {e}")
-
 def get_usdt_balance():
     try:
         response = session.get_wallet_balance(accountType='UNIFIED', coin='USDT')
@@ -174,7 +167,7 @@ def webhook():
     symbol = data.get('symbol', 'BTCUSDT')  # Pode ajustar conforme necessário
     leverage = 1  # Alavancagem será sempre 1
 
-    if action not in ['long', 'short']:
+    if action not in ['long', 'short', 'exit']:
         logging.warning("Ação inválida recebida.")
         return jsonify({'message': 'Ação inválida'}), 400
 
@@ -208,6 +201,14 @@ def webhook():
         else:
             # Nenhuma posição aberta, abrir short
             open_position('short', symbol, leverage)
+
+    elif action == 'exit':
+        if position:
+            # Fechar posição aberta
+            close_position(position)
+            logging.info("Posição fechada com sucesso.")
+        else:
+            logging.info("Nenhuma posição aberta para fechar.")
 
     end_time = time.time()
     latency = end_time - start_time
