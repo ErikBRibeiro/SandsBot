@@ -21,7 +21,7 @@ load_dotenv(find_dotenv())
 SECRET_KEY = os.getenv('SECRET_KEY', '1221')  # Padrão para '1221' se não estiver definido
 
 # Lista de contas na ordem desejada
-accounts_order = ['ERIK', 'NATAN']
+accounts_order = ['FERNANDO', 'ERIK', 'NATAN']
 
 # Dicionário para armazenar as sessões da API e dados da conta
 api_sessions = {}
@@ -246,8 +246,74 @@ def webhook():
             if position:
                 if position['side'] == 'Sell':
                     # Fechar posição short antes de abrir long
+                    logging.info(f"Conta {account}: Fechando posição short antes de abrir long.")
+                    
+                    # Fechar posição
                     close_position(session, position)
+                    
+                    # Obter saldo após fechar a posição
+                    usdt_balance_after_exit = get_usdt_balance(session)
+                    
+                    # Calcular outcome e PnL para o exit
+                    entry_balance = account_data[account]['entry_balance']
+                    if entry_balance is not None and entry_balance > 0:
+                        pnl_exit = usdt_balance_after_exit - entry_balance
+                        outcome_exit = (pnl_exit / entry_balance) * 100
+                    else:
+                        logging.warning(f"Conta {account}: Saldo de entrada não registrado. Não é possível calcular o outcome.")
+                        pnl_exit = 0.0
+                        outcome_exit = 0.0
+                    
+                    # Registrar o exit no CSV
+                    action_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())
+                    account_end_time = time.time()
+                    latency = account_end_time - account_start_time
+                    data_row_exit = {
+                        'api_owner': account,
+                        'alert_time': alert_time,
+                        'action_time': action_time,
+                        'type': 'exit',
+                        'btc_price': btc_price,
+                        'balance': usdt_balance_after_exit,
+                        'outcome': outcome_exit,
+                        'PnL': pnl_exit,
+                        'latency': latency
+                    }
+                    write_to_csv(data_row_exit)
+                    
+                    # Resetar dados de entrada
+                    account_data[account]['entry_balance'] = None
+                    account_data[account]['entry_time'] = None
+                    account_data[account]['entry_price'] = None
+                    
+                    # Abrir nova posição long
                     open_position(session, 'long', symbol, leverage)
+                    
+                    # Obter saldo após abrir a nova posição
+                    usdt_balance_after_entry = get_usdt_balance(session)
+                    
+                    # Registrar dados de entrada
+                    account_data[account]['entry_balance'] = usdt_balance_after_entry
+                    account_data[account]['entry_time'] = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())
+                    account_data[account]['entry_price'] = btc_price
+                    
+                    # Registrar a nova entrada no CSV com outcome e PnL zero
+                    action_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())
+                    account_end_time = time.time()
+                    latency = account_end_time - account_start_time
+                    data_row_entry = {
+                        'api_owner': account,
+                        'alert_time': alert_time,
+                        'action_time': action_time,
+                        'type': 'long',
+                        'btc_price': btc_price,
+                        'balance': usdt_balance_after_entry,
+                        'outcome': 0.0,
+                        'PnL': 0.0,
+                        'latency': latency
+                    }
+                    write_to_csv(data_row_entry)
+                    
                 elif position['side'] == 'Buy':
                     logging.info(f"Conta {account}: Já está em posição long. Nenhuma ação necessária.")
                 else:
@@ -255,21 +321,104 @@ def webhook():
             else:
                 # Nenhuma posição aberta, abrir long
                 open_position(session, 'long', symbol, leverage)
-            
-            # Após abrir a posição, obter o saldo atual
-            usdt_balance_after = get_usdt_balance(session)
-            
-            # Registrar dados de entrada
-            account_data[account]['entry_balance'] = usdt_balance_after
-            account_data[account]['entry_time'] = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())
-            account_data[account]['entry_price'] = btc_price
-            
+                
+                # Obter saldo após abrir a posição
+                usdt_balance_after_entry = get_usdt_balance(session)
+                
+                # Registrar dados de entrada
+                account_data[account]['entry_balance'] = usdt_balance_after_entry
+                account_data[account]['entry_time'] = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())
+                account_data[account]['entry_price'] = btc_price
+                
+                # Registrar a nova entrada no CSV com outcome e PnL zero
+                action_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())
+                account_end_time = time.time()
+                latency = account_end_time - account_start_time
+                data_row_entry = {
+                    'api_owner': account,
+                    'alert_time': alert_time,
+                    'action_time': action_time,
+                    'type': 'long',
+                    'btc_price': btc_price,
+                    'balance': usdt_balance_after_entry,
+                    'outcome': 0.0,
+                    'PnL': 0.0,
+                    'latency': latency
+                }
+                write_to_csv(data_row_entry)
+                
         elif action == 'short':
             if position:
                 if position['side'] == 'Buy':
                     # Fechar posição long antes de abrir short
+                    logging.info(f"Conta {account}: Fechando posição long antes de abrir short.")
+                    
+                    # Fechar posição
                     close_position(session, position)
+                    
+                    # Obter saldo após fechar a posição
+                    usdt_balance_after_exit = get_usdt_balance(session)
+                    
+                    # Calcular outcome e PnL para o exit
+                    entry_balance = account_data[account]['entry_balance']
+                    if entry_balance is not None and entry_balance > 0:
+                        pnl_exit = usdt_balance_after_exit - entry_balance
+                        outcome_exit = (pnl_exit / entry_balance) * 100
+                    else:
+                        logging.warning(f"Conta {account}: Saldo de entrada não registrado. Não é possível calcular o outcome.")
+                        pnl_exit = 0.0
+                        outcome_exit = 0.0
+                    
+                    # Registrar o exit no CSV
+                    action_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())
+                    account_end_time = time.time()
+                    latency = account_end_time - account_start_time
+                    data_row_exit = {
+                        'api_owner': account,
+                        'alert_time': alert_time,
+                        'action_time': action_time,
+                        'type': 'exit',
+                        'btc_price': btc_price,
+                        'balance': usdt_balance_after_exit,
+                        'outcome': outcome_exit,
+                        'PnL': pnl_exit,
+                        'latency': latency
+                    }
+                    write_to_csv(data_row_exit)
+                    
+                    # Resetar dados de entrada
+                    account_data[account]['entry_balance'] = None
+                    account_data[account]['entry_time'] = None
+                    account_data[account]['entry_price'] = None
+                    
+                    # Abrir nova posição short
                     open_position(session, 'short', symbol, leverage)
+                    
+                    # Obter saldo após abrir a nova posição
+                    usdt_balance_after_entry = get_usdt_balance(session)
+                    
+                    # Registrar dados de entrada
+                    account_data[account]['entry_balance'] = usdt_balance_after_entry
+                    account_data[account]['entry_time'] = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())
+                    account_data[account]['entry_price'] = btc_price
+                    
+                    # Registrar a nova entrada no CSV com outcome e PnL zero
+                    action_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())
+                    account_end_time = time.time()
+                    latency = account_end_time - account_start_time
+                    data_row_entry = {
+                        'api_owner': account,
+                        'alert_time': alert_time,
+                        'action_time': action_time,
+                        'type': 'short',
+                        'btc_price': btc_price,
+                        'balance': usdt_balance_after_entry,
+                        'outcome': 0.0,
+                        'PnL': 0.0,
+                        'latency': latency
+                    }
+                    write_to_csv(data_row_entry)
+                    
                 elif position['side'] == 'Sell':
                     logging.info(f"Conta {account}: Já está em posição short. Nenhuma ação necessária.")
                 else:
@@ -277,60 +426,92 @@ def webhook():
             else:
                 # Nenhuma posição aberta, abrir short
                 open_position(session, 'short', symbol, leverage)
-            
-            # Após abrir a posição, obter o saldo atual
-            usdt_balance_after = get_usdt_balance(session)
-            
-            # Registrar dados de entrada
-            account_data[account]['entry_balance'] = usdt_balance_after
-            account_data[account]['entry_time'] = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())
-            account_data[account]['entry_price'] = btc_price
-            
+                
+                # Obter saldo após abrir a posição
+                usdt_balance_after_entry = get_usdt_balance(session)
+                
+                # Registrar dados de entrada
+                account_data[account]['entry_balance'] = usdt_balance_after_entry
+                account_data[account]['entry_time'] = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())
+                account_data[account]['entry_price'] = btc_price
+                
+                # Registrar a nova entrada no CSV com outcome e PnL zero
+                action_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())
+                account_end_time = time.time()
+                latency = account_end_time - account_start_time
+                data_row_entry = {
+                    'api_owner': account,
+                    'alert_time': alert_time,
+                    'action_time': action_time,
+                    'type': 'short',
+                    'btc_price': btc_price,
+                    'balance': usdt_balance_after_entry,
+                    'outcome': 0.0,
+                    'PnL': 0.0,
+                    'latency': latency
+                }
+                write_to_csv(data_row_entry)
+                
         elif action == 'exit':
             if position:
                 # Fechar posição aberta
                 close_position(session, position)
                 logging.info(f"Conta {account}: Posição fechada com sucesso.")
-            else:
-                logging.info(f"Conta {account}: Nenhuma posição aberta para fechar.")
-            
-            # Após fechar a posição, obter o saldo atual
-            usdt_balance_after = get_usdt_balance(session)
-            
-            # Calcular o outcome e PnL se houver um saldo de entrada registrado
-            entry_balance = account_data[account]['entry_balance']
-            if entry_balance is not None and entry_balance > 0:
-                pnl = usdt_balance_after - entry_balance
-                outcome = (pnl / entry_balance) * 100
-                # Resetar os dados de entrada
+                
+                # Obter saldo após fechar a posição
+                usdt_balance_after_exit = get_usdt_balance(session)
+                
+                # Calcular outcome e PnL
+                entry_balance = account_data[account]['entry_balance']
+                if entry_balance is not None and entry_balance > 0:
+                    pnl = usdt_balance_after_exit - entry_balance
+                    outcome = (pnl / entry_balance) * 100
+                else:
+                    logging.warning(f"Conta {account}: Saldo de entrada não registrado. Não é possível calcular o outcome.")
+                    pnl = 0.0
+                    outcome = 0.0
+                
+                # Registrar o exit no CSV
+                action_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())
+                account_end_time = time.time()
+                latency = account_end_time - account_start_time
+                data_row_exit = {
+                    'api_owner': account,
+                    'alert_time': alert_time,
+                    'action_time': action_time,
+                    'type': 'exit',
+                    'btc_price': btc_price,
+                    'balance': usdt_balance_after_exit,
+                    'outcome': outcome,
+                    'PnL': pnl,
+                    'latency': latency
+                }
+                write_to_csv(data_row_exit)
+                
+                # Resetar dados de entrada
                 account_data[account]['entry_balance'] = None
                 account_data[account]['entry_time'] = None
                 account_data[account]['entry_price'] = None
+                
             else:
-                logging.warning(f"Conta {account}: Saldo de entrada não registrado. Não é possível calcular o outcome.")
-                outcome = 0.0  # Ou você pode decidir não registrar o outcome neste caso
-                pnl = 0.0      # PnL não pode ser calculado
-        
-        # Tempo de ação e latência
-        action_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())
-        account_end_time = time.time()
-        latency = account_end_time - account_start_time
-        
-        # Preparar dados para o CSV
-        data_row = {
-            'api_owner': account,
-            'alert_time': alert_time,
-            'action_time': action_time,
-            'type': action,
-            'btc_price': btc_price,
-            'balance': usdt_balance_after,
-            'outcome': outcome,
-            'PnL': pnl,
-            'latency': latency
-        }
-        
-        # Escrever os dados no arquivo CSV
-        write_to_csv(data_row)
+                logging.info(f"Conta {account}: Nenhuma posição aberta para fechar.")
+                # Opcionalmente, você pode registrar um 'exit' mesmo se não houver posição aberta
+                # Nesse caso, outcome e PnL serão zero
+                action_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())
+                account_end_time = time.time()
+                latency = account_end_time - account_start_time
+                data_row_exit = {
+                    'api_owner': account,
+                    'alert_time': alert_time,
+                    'action_time': action_time,
+                    'type': 'exit',
+                    'btc_price': btc_price,
+                    'balance': usdt_balance_before,  # Saldo não mudou
+                    'outcome': 0.0,
+                    'PnL': 0.0,
+                    'latency': latency
+                }
+                write_to_csv(data_row_exit)
     
     webhook_end_time = time.time()
     total_latency = webhook_end_time - webhook_start_time
