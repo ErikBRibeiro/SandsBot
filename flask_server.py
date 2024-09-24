@@ -4,20 +4,27 @@ import os
 import time
 import logging
 import numpy as np
+import sys
+from dotenv import load_dotenv, find_dotenv
 
 app = Flask(__name__)
 
-# Configurações da API da Bybit
-BYBIT_API_KEY = 'SEU_API_KEY'
-BYBIT_API_SECRET = 'SEU_API_SECRET'
+# Load API key and secret from .env file
+load_dotenv(find_dotenv())
+API_KEY = os.getenv('BYBIT_API_KEY')
+API_SECRET = os.getenv('BYBIT_API_SECRET')
+
+if not API_KEY or not API_SECRET:
+    logging.error("API_KEY and/or API_SECRET not found. Please check your .env file.")
+    sys.exit(1)
 
 # Chave secreta para autenticação de Webhook
 SECRET_KEY = '1221'
 
 # Inicializar a sessão da API
 session = HTTP(
-    api_key=BYBIT_API_KEY,
-    api_secret=BYBIT_API_SECRET
+    api_key=API_KEY,
+    api_secret=API_SECRET
 )
 
 # Configuração básica de logging para o console
