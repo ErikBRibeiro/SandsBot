@@ -20,16 +20,16 @@ session = HTTP(
     # testnet=True  # Descomente esta linha se estiver usando a Testnet
 )
 
-# Teste uma chamada simples, como obter o saldo
-try:
-    response = session.get_wallet_balance(coin='USDT')
-    print(response)
-except Exception as e:
-    print(f"Erro ao obter saldo: {e}")
-
 # Configuração básica de logging para o console
 logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s %(levelname)s %(message)s')
+
+# Teste uma chamada simples, como obter o saldo
+try:
+    response = session.get_wallet_balance(coin='USDT')
+    logging.info(response)
+except Exception as e:
+    logging.info(f"Erro ao obter saldo: {e}")
 
 def get_usdt_balance():
     try:
