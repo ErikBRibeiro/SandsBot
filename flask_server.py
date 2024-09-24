@@ -7,8 +7,8 @@ import numpy as np
 app = Flask(__name__)
 
 # Configurações da API da Bybit
-BYBIT_API_KEY = 'SEU_API_KEY'
-BYBIT_API_SECRET = 'SEU_API_SECRET'
+BYBIT_API_KEY = 'BYBIT_API_KEY'
+BYBIT_API_SECRET = 'BYBIT_API_SECRET'
 
 # Chave secreta para autenticação de Webhook
 SECRET_KEY = '1221'
