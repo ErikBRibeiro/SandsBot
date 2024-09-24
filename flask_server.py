@@ -35,7 +35,7 @@ logging.basicConfig(level=logging.INFO,
 # Teste uma chamada simples, como obter o saldo
 try:
     response = session.get_wallet_balance(accountType='UNIFIED', coin='USDT')
-    logging.info(response)
+    logging.info(f"Resposta da API: {response}")
 except Exception as e:
     logging.info(f"Erro ao obter saldo: {e}")
 
@@ -43,9 +43,15 @@ def get_usdt_balance():
     try:
         response = session.get_wallet_balance(accountType='UNIFIED', coin='USDT')
         if response['retCode'] == 0:
-            # Ajuste na extração do saldo disponível
-            usdt_balance = float(response['result']['list'][0]['cashBalance'])
-            return usdt_balance
+            coin_list = response['result']['list'][0]['coin']
+            for coin in coin_list:
+                if coin['coin'] == 'USDT':
+                    usdt_balance = float(coin['walletBalance'])
+                    logging.info(f"Saldo USDT disponível: {usdt_balance}")
+                    return usdt_balance
+            # Se USDT não for encontrado
+            logging.error("USDT não encontrado na lista de moedas.")
+            return 0.0
         else:
             logging.error(f"Erro ao obter saldo: {response['retMsg']}")
             return 0.0
