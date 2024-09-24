@@ -3,12 +3,20 @@ from pybit.unified_trading import HTTP
 import time
 import logging
 import numpy as np
+import os
+import sys
+from dotenv import load_dotenv, find_dotenv
 
 app = Flask(__name__)
 
-# Configurações da API da Bybit
-BYBIT_API_KEY = 'BYBIT_API_KEY'
-BYBIT_API_SECRET = 'BYBIT_API_SECRET'
+# Load API key and secret from .env file
+load_dotenv(find_dotenv())
+BYBIT_API_KEY = os.getenv('BYBIT_API_KEY')
+BYBIT_API_SECRET = os.getenv('BYBIT_API_SECRET')
+
+if not BYBIT_API_KEY or not BYBIT_API_SECRET:
+    logging.error("API_KEY and/or API_SECRET not found. Please check your .env file.")
+    sys.exit(1)
 
 # Chave secreta para autenticação de Webhook
 SECRET_KEY = '1221'
