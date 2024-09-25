@@ -106,7 +106,8 @@ def get_usdt_balance(session, account_name):
 def get_open_positions_count(session, account_name):
     try:
         response = session.get_positions(
-            category='linear'
+            category='linear',
+            settleCoin='USDT'  # Adicionado o settleCoin para obter todas as posições USDT
         )
         if response['retCode'] == 0:
             positions = response['result']['list']
