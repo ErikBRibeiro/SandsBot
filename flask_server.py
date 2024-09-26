@@ -11,7 +11,7 @@ from dotenv import load_dotenv, find_dotenv
 app = Flask(__name__)
 
 # Configuração básica de logging para o console
-logging.basicConfig(level=logging.DEBUG,
+logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s %(levelname)s %(message)s')
 
 # Carregar as variáveis de ambiente do arquivo .env
@@ -84,7 +84,7 @@ def write_error_to_csv(account_name, code, message):
 def get_usdt_balance(session, account_name):
     try:
         response = session.get_wallet_balance(accountType='UNIFIED')
-        logging.debug(f"Resposta get_wallet_balance para {account_name}: {response}")
+        # logging.debug(f"Resposta get_wallet_balance para {account_name}: {response}")
         if response['retCode'] == 0:
             if 'result' in response and 'list' in response['result']:
                 data_list = response['result']['list']
