@@ -11,7 +11,7 @@ from dotenv import load_dotenv, find_dotenv
 app = Flask(__name__)
 
 # Configuração básica de logging para o console
-logging.basicConfig(level=logging.INFO,
+logging.basicConfig(level=logging.DEBUG,
                     format='%(asctime)s %(levelname)s %(message)s')
 
 # Carregar as variáveis de ambiente do arquivo .env
@@ -83,18 +83,19 @@ def write_error_to_csv(account_name, code, message):
 
 def get_usdt_balance(session, account_name):
     try:
-        response = session.get_wallet_balance(accountType='UNIFIED', coin='USDT')
-        logging.debug(f"Resposta get_wallet_balance para {account_name}: {response}")  # Log detalhado
+        response = session.get_wallet_balance(accountType='UNIFIED')
+        logging.debug(f"Resposta get_wallet_balance para {account_name}: {response}")
         if response['retCode'] == 0:
-            # Verifique a estrutura da resposta
             if 'result' in response and 'list' in response['result']:
-                coin_list = response['result']['list'][0].get('coin', [])
-                for coin in coin_list:
-                    if coin.get('coin') == 'USDT':
-                        # Ajuste aqui se o campo for diferente
-                        available_balance = float(coin.get('availableBalance', 0.0))
-                        logging.debug(f"Saldo disponível USDT para {account_name}: {available_balance}")
-                        return available_balance
+                data_list = response['result']['list']
+                for item in data_list:
+                    if 'coin' in item:
+                        coin_list = item['coin']
+                        for coin in coin_list:
+                            if coin.get('coin') == 'USDT':
+                                available_balance = float(coin.get('availableToWithdraw', 0.0))
+                                logging.debug(f"Saldo disponível USDT para {account_name}: {available_balance}")
+                                return available_balance
                 # Se USDT não for encontrado
                 message = "USDT não encontrado na lista de moedas."
                 logging.error(f"Conta {account_name}: {message}")
