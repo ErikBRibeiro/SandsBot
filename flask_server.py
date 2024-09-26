@@ -86,22 +86,29 @@ def get_usdt_balance(session, account_name):
         response = session.get_wallet_balance(accountType='UNIFIED', coin='USDT')
         logging.debug(f"Resposta get_wallet_balance para {account_name}: {response}")  # Log detalhado
         if response['retCode'] == 0:
-            coin_list = response['result']['list'][0]['coin']
-            for coin in coin_list:
-                if coin['coin'] == 'USDT':
-                    # Tente obter 'availableBalance', caso contrário, use 'walletBalance'
-                    available_balance = float(coin.get('availableBalance', coin.get('walletBalance', 0.0)))
-                    logging.debug(f"Conta {account_name}: Saldo disponível USDT: {available_balance}")
-                    return available_balance
-            # Se USDT não for encontrado
-            message = "USDT não encontrado na lista de moedas."
-            logging.error(f"Conta {account_name}: {message}")
-            write_error_to_csv(account_name, response['retCode'], message)
-            return 0.0
+            # Verifique a estrutura da resposta
+            if 'result' in response and 'list' in response['result']:
+                coin_list = response['result']['list'][0].get('coin', [])
+                for coin in coin_list:
+                    if coin.get('coin') == 'USDT':
+                        # Ajuste aqui se o campo for diferente
+                        available_balance = float(coin.get('availableBalance', 0.0))
+                        logging.debug(f"Saldo disponível USDT para {account_name}: {available_balance}")
+                        return available_balance
+                # Se USDT não for encontrado
+                message = "USDT não encontrado na lista de moedas."
+                logging.error(f"Conta {account_name}: {message}")
+                write_error_to_csv(account_name, response['retCode'], message)
+                return 0.0
+            else:
+                message = "Estrutura inesperada na resposta da API."
+                logging.error(f"Conta {account_name}: {message}")
+                write_error_to_csv(account_name, 'InvalidResponse', message)
+                return 0.0
         else:
             message = f"Erro ao obter saldo: {response.get('retMsg', 'Mensagem não disponível')}"
             logging.error(f"Conta {account_name}: {message}")
-            write_error_to_csv(account_name, response.get('retCode', 'Unknown'), message)
+            write_error_to_csv(account_name, response.get('retCode', 'N/A'), response.get('retMsg', 'N/A'))
             return 0.0
     except Exception as e:
         message = f"Erro ao obter saldo: {e}"
@@ -127,6 +134,43 @@ def get_current_price(symbol='BTCUSDT'):
     except Exception as e:
         logging.error(f"Erro ao obter preço: {e}")
         return 0.0
+
+def get_coin_balance_specific(session, account_name):
+    try:
+        response = session.get_coin_balance(coin='USDT')
+        logging.debug(f"Resposta get_coin_balance para {account_name}: {response}")  # Log detalhado
+        if response['retCode'] == 0:
+            available_balance = float(response['result']['availableBalance'])
+            logging.debug(f"Saldo disponível USDT para {account_name}: {available_balance}")
+            return available_balance
+        else:
+            message = f"Erro ao obter saldo de USDT: {response.get('retMsg', 'Mensagem não disponível')}"
+            logging.error(f"Conta {account_name}: {message}")
+            write_error_to_csv(account_name, response.get('retCode', 'N/A'), response.get('retMsg', 'N/A'))
+            return 0.0
+    except Exception as e:
+        message = f"Erro ao obter saldo de USDT: {e}"
+        logging.error(f"Conta {account_name}: {message}")
+        write_error_to_csv(account_name, 'Exception', str(e))
+        return 0.0
+
+def get_order_executions(session, symbol, order_id):
+    try:
+        response = session.get_executions(
+            category='linear',
+            symbol=symbol,
+            orderId=order_id
+        )
+        logging.debug(f"Resposta get_executions para ordem {order_id} na conta: {response}")  # Log detalhado
+        if response['retCode'] == 0 and 'list' in response['result']:
+            return response['result']['list']
+        else:
+            message = f"Erro ao obter execuções: {response.get('retMsg', 'Mensagem não disponível')}"
+            logging.error(message)
+            return []
+    except Exception as e:
+        logging.error(f"Erro ao obter execuções: {e}")
+        return []
 
 def get_open_positions_info(session, account_name):
     try:
@@ -248,7 +292,7 @@ def close_position(session, position, account_name):
             order_id = order['result']['orderId']
 
             # Aguardar brevemente para garantir que os detalhes da execução estejam disponíveis
-            time.sleep(0.1)  # Reduzido para acelerar o processo
+            time.sleep(0.2)  # Reduzido para acelerar o processo
 
             # Obter detalhes da execução usando get_executions
             executions = session.get_executions(
@@ -276,7 +320,7 @@ def close_position(session, position, account_name):
             else:
                 message = f"Erro ao obter detalhes da execução: {executions['retMsg']}"
                 logging.error(f"Conta {account_name}: {message}")
-                write_error_to_csv(account_name, executions['retCode'], message)
+                write_error_to_csv(account_name, executions['retCode'], executions['retMsg'])
                 return None  # Indica falha
         else:
             message = f"Erro ao fechar posição: {order['retMsg']}"
@@ -337,52 +381,60 @@ def open_position(session, action, account_name, symbol='BTCUSDT', leverage=1):
                 write_error_to_csv(account_name, 'MinQtyError', message)
                 continue  # Pular para a próxima tentativa
 
-            # Colocar a ordem de mercado
-            order = session.place_order(
-                category='linear',
-                symbol=symbol,
-                side=side,
-                orderType='Market',
-                qty=str(qty),  # qty deve ser uma string
-                timeInForce='GTC',
-                reduceOnly=False
-            )
-
-            if order['retCode'] == 0:
-                logging.info(f"Conta {account_name}: Ordem de {side} executada com sucesso na tentativa {attempt}. Qty: {qty} BTC")
-
-                # Obter o ID da ordem
-                order_id = order['result']['orderId']
-
-                # Aguardar brevemente para garantir que os detalhes da execução estejam disponíveis
-                time.sleep(0.2)  # Reduzido para acelerar o processo
-
-                # Obter detalhes da execução usando get_executions
-                executions = session.get_executions(
+            try:
+                # Colocar a ordem de mercado
+                order = session.place_order(
                     category='linear',
                     symbol=symbol,
-                    orderId=order_id
+                    side=side,
+                    orderType='Market',
+                    qty=str(qty),  # qty deve ser uma string
+                    timeInForce='GTC',
+                    reduceOnly=False
                 )
 
-                if executions['retCode'] == 0 and 'list' in executions['result']:
-                    for exec in executions['result']['list']:
-                        exec_qty = float(exec['execQty'])
-                        exec_price = float(exec['execPrice'])
-                        successful_orders.append({
-                            'qty': exec_qty,
-                            'price': exec_price
-                        })
-                        logging.info(f"Conta {account_name}: Execução {exec_qty} BTC a {exec_price} USDT")
+                if order['retCode'] == 0:
+                    logging.info(f"Conta {account_name}: Ordem de {side} executada com sucesso na tentativa {attempt}. Qty: {qty} BTC")
+
+                    # Obter o ID da ordem
+                    order_id = order['result']['orderId']
+
+                    # Aguardar brevemente para garantir que os detalhes da execução estejam disponíveis
+                    time.sleep(0.2)  # Reduzido para acelerar o processo
+
+                    # Obter detalhes da execução usando get_executions
+                    executions = session.get_executions(
+                        category='linear',
+                        symbol=symbol,
+                        orderId=order_id
+                    )
+
+                    if executions['retCode'] == 0 and 'list' in executions['result']:
+                        for exec in executions['result']['list']:
+                            exec_qty = float(exec['execQty'])
+                            exec_price = float(exec['execPrice'])
+                            successful_orders.append({
+                                'qty': exec_qty,
+                                'price': exec_price
+                            })
+                            logging.info(f"Conta {account_name}: Execução {exec_qty} BTC a {exec_price} USDT")
+                    else:
+                        message = f"Erro ao obter detalhes da execução: {executions.get('retMsg', 'Mensagem não disponível')}"
+                        logging.error(f"Conta {account_name}: {message}")
+                        write_error_to_csv(account_name, executions.get('retCode', 'N/A'), executions.get('retMsg', 'N/A'))
+                        errors_occurred = True
+                        break  # Abort further attempts
                 else:
-                    message = f"Erro ao obter detalhes da execução: {executions['retMsg']}"
+                    message = f"Erro ao executar ordem na tentativa {attempt}: {order.get('retMsg', 'Mensagem não disponível')} (retCode {order.get('retCode', 'N/A')})"
                     logging.error(f"Conta {account_name}: {message}")
-                    write_error_to_csv(account_name, executions['retCode'], executions['retMsg'])
+                    write_error_to_csv(account_name, order.get('retCode', 'N/A'), order.get('retMsg', 'N/A'))
                     errors_occurred = True
                     break  # Abort further attempts
-            else:
-                message = f"Erro ao executar ordem na tentativa {attempt}: {order['retMsg']} (retCode {order['retCode']})"
+
+            except Exception as e:
+                message = f"Erro na tentativa {attempt}: {e}"
                 logging.error(f"Conta {account_name}: {message}")
-                write_error_to_csv(account_name, order['retCode'], order['retMsg'])
+                write_error_to_csv(account_name, 'Exception', str(e))
                 errors_occurred = True
                 break  # Abort further attempts
 
@@ -409,7 +461,8 @@ def open_position(session, action, account_name, symbol='BTCUSDT', leverage=1):
             return None  # Indica falha
 
     except Exception as e:
-        message = f"Erro ao executar ordem: {e}"
+        # Bloco 'except' para o 'try' principal
+        message = f"Erro geral na função open_position: {e}"
         logging.error(f"Conta {account_name}: {message}")
         write_error_to_csv(account_name, 'Exception', str(e))
         return None  # Indica falha
