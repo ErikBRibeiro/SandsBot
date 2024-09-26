@@ -103,6 +103,34 @@ def get_usdt_balance(session, account_name):
         write_error_to_csv(account_name, 'Exception', str(e))
         return 0.0
 
+def get_open_positions_count(session, account_name):
+    try:
+        response = session.get_positions(
+            category='linear'
+        )
+        if response['retCode'] == 0:
+            positions = response['result']['list']
+            open_positions = [pos for pos in positions if float(pos['size']) > 0]
+            num_open_positions = len(open_positions)
+            return num_open_positions
+        else:
+            message = f"Erro ao obter posições: {response['retMsg']}"
+            logging.error(f"Conta {account_name}: {message}")
+            write_error_to_csv(account_name, response['retCode'], message)
+            return 0
+    except Exception as e:
+        message = f"Erro ao obter posições: {e}"
+        logging.error(f"Conta {account_name}: {message}")
+        write_error_to_csv(account_name, 'Exception', str(e))
+        return 0
+
+# Após inicializar as sessões, obter e registrar o saldo e posições de cada conta
+for account in accounts_order:
+    session = api_sessions[account]
+    balance = get_usdt_balance(session, account)
+    num_open_positions = get_open_positions_count(session, account)
+    logging.info(f"Conta {account}: Saldo USDT no Unified: {balance} USDT, Contratos abertos atualmente: {num_open_positions}")
+
 def get_current_price(symbol='BTCUSDT'):
     try:
         # Usamos a sessão da primeira conta apenas para obter o preço
@@ -120,65 +148,6 @@ def get_current_price(symbol='BTCUSDT'):
     except Exception as e:
         logging.error(f"Erro ao obter preço: {e}")
         return 0.0
-
-def get_open_positions_info(session, account_name):
-    try:
-        response = session.get_positions(
-            category='linear',
-            settleCoin='USDT'  # Adicionado o settleCoin para obter todas as posições USDT
-        )
-        if response['retCode'] == 0:
-            positions = response['result']['list']
-            open_positions = [pos for pos in positions if float(pos['size']) > 0]
-            num_open_positions = len(open_positions)
-
-            total_size_btc = sum(float(pos['size']) for pos in open_positions)
-            # Obter o preço atual do BTC
-            btc_price = get_current_price('BTCUSDT')
-            total_value_usdt = total_size_btc * btc_price
-
-            return {
-                'num_open_positions': num_open_positions,
-                'total_size_btc': total_size_btc,
-                'total_value_usdt': total_value_usdt
-            }
-        else:
-            message = f"Erro ao obter posições: {response['retMsg']}"
-            logging.error(f"Conta {account_name}: {message}")
-            write_error_to_csv(account_name, response['retCode'], message)
-            return {
-                'num_open_positions': 0,
-                'total_size_btc': 0.0,
-                'total_value_usdt': 0.0
-            }
-    except Exception as e:
-        message = f"Erro ao obter posições: {e}"
-        logging.error(f"Conta {account_name}: {message}")
-        write_error_to_csv(account_name, 'Exception', str(e))
-        return {
-            'num_open_positions': 0,
-            'total_size_btc': 0.0,
-            'total_value_usdt': 0.0
-        }
-
-# Após inicializar as sessões, obter e registrar o saldo e posições de cada conta
-for account in accounts_order:
-    session = api_sessions[account]
-    balance = get_usdt_balance(session, account)
-    positions_info = get_open_positions_info(session, account)
-    num_open_positions = positions_info['num_open_positions']
-    total_size_btc = positions_info['total_size_btc']
-    total_value_usdt = positions_info['total_value_usdt']
-
-    # Formatar os valores para exibição
-    balance_formatted = f"{balance:,.2f}"
-    total_size_btc_formatted = f"{total_size_btc:,.6f}"
-    total_value_usdt_formatted = f"{total_value_usdt:,.2f}"
-
-    logging.info(f"Conta {account}: Saldo USDT no Unified: {balance_formatted} USDT, "
-                 f"Contratos abertos: {num_open_positions}, "
-                 f"Valor total dos contratos abertos: {total_size_btc_formatted} BTC "
-                 f"(~{total_value_usdt_formatted} USDT)")
 
 def calculate_qty(usdt_balance, price, leverage=1, balance_percentage=0.98):
     if price == 0:
