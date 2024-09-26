@@ -255,7 +255,7 @@ def close_position(session, position, account_name):
             order_id = order['result']['orderId']
 
             # Aguardar brevemente para garantir que os detalhes da execução estejam disponíveis
-            time.sleep(0.2)  # Reduzido para acelerar o processo
+            time.sleep(0.1)  # Reduzido para acelerar o processo
 
             # Obter detalhes da execução usando get_executions
             executions = session.get_executions(
