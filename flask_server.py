@@ -21,7 +21,7 @@ load_dotenv(find_dotenv())
 SECRET_KEY = os.getenv('SECRET_KEY', '1221')  # Padrão para '1221' se não estiver definido
 
 # Lista de contas na ordem desejada
-accounts_order = ['FERNANDO', 'PABLO', 'HAMUCHY', 'ZE', 'NATAN', 'ERIK']
+accounts_order = ['TESTE1', 'TESTE2', 'TESTE3']
 
 # Dicionário para armazenar as sessões da API e dados da conta
 api_sessions = {}
