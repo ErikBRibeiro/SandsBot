@@ -242,8 +242,8 @@ def close_position(session, position, account_name):
             # Aguardar brevemente para garantir que os detalhes da execução estejam disponíveis
             time.sleep(0.5)
 
-            # Obter detalhes da execução usando get_order_fills
-            executions = session.get_order_fills(
+            # Obter detalhes da execução usando get_execution_list
+            executions = session.get_execution_list(
                 category='linear',
                 symbol=position['symbol'],
                 orderId=order_id
@@ -332,8 +332,8 @@ def open_position(session, action, account_name, symbol='BTCUSDT', leverage=1):
                 # Aguardar brevemente para garantir que os detalhes da execução estejam disponíveis
                 time.sleep(0.5)
 
-                # Obter detalhes da execução usando get_order_fills
-                executions = session.get_order_fills(
+                # Obter detalhes da execução usando get_execution_list
+                executions = session.get_execution_list(
                     category='linear',
                     symbol=symbol,
                     orderId=order_id
