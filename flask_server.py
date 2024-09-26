@@ -241,7 +241,7 @@ def close_position(session, position, account_name):
             order_id = order['result']['orderId']
 
             # Aguardar brevemente para garantir que os detalhes da execução estejam disponíveis
-            time.sleep(0.5)
+            time.sleep(0.1)
 
             # Obter detalhes da execução usando get_executions
             executions = session.get_executions(
@@ -306,7 +306,7 @@ def open_position(session, action, account_name, symbol='BTCUSDT', leverage=1):
             adjusted_balance = usdt_balance * balance_percentage
             qty = adjusted_balance * leverage / price
             qty = np.floor(qty * 1000) / 1000  # Ajustar para 3 casas decimais
-
+            logging.info(f"Conta {account_name}: quantity calculado na tentativa {attempt}: {qty}")
             # Verificar se qty é menor que 0.001 BTC (mínimo da Bybit)
             if qty < 0.001:
                 message = f"Quantidade calculada ({qty}) é menor que o mínimo permitido (0.001 BTC). Abortando tentativa {attempt}."
