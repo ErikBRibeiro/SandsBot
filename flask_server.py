@@ -89,7 +89,9 @@ def get_usdt_balance(session, account_name):
             coin_list = response['result']['list'][0]['coin']
             for coin in coin_list:
                 if coin['coin'] == 'USDT':
-                    available_balance = float(coin.get('availableBalance', 0.0))  # Ajuste conforme a resposta real
+                    # Tente obter 'availableBalance', caso contrário, use 'walletBalance'
+                    available_balance = float(coin.get('availableBalance', coin.get('walletBalance', 0.0)))
+                    logging.debug(f"Conta {account_name}: Saldo disponível USDT: {available_balance}")
                     return available_balance
             # Se USDT não for encontrado
             message = "USDT não encontrado na lista de moedas."
@@ -97,15 +99,16 @@ def get_usdt_balance(session, account_name):
             write_error_to_csv(account_name, response['retCode'], message)
             return 0.0
         else:
-            message = f"Erro ao obter saldo: {response['retMsg']}"
+            message = f"Erro ao obter saldo: {response.get('retMsg', 'Mensagem não disponível')}"
             logging.error(f"Conta {account_name}: {message}")
-            write_error_to_csv(account_name, response['retCode'], message)
+            write_error_to_csv(account_name, response.get('retCode', 'Unknown'), message)
             return 0.0
     except Exception as e:
         message = f"Erro ao obter saldo: {e}"
         logging.error(f"Conta {account_name}: {message}")
         write_error_to_csv(account_name, 'Exception', str(e))
         return 0.0
+
 
 def get_current_price(symbol='BTCUSDT'):
     try:
