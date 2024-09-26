@@ -18,7 +18,7 @@ logging.basicConfig(level=logging.INFO,
 load_dotenv(find_dotenv())
 
 # Chave secreta para autenticação de Webhook
-SECRET_KEY = os.getenv('SECRET_KEY', '2112')  # Padrão para '1221' se não estiver definido
+SECRET_KEY = os.getenv('SECRET_KEY', '2112')  # Padrão para '2112' se não estiver definido
 
 # Lista de contas na ordem desejada
 accounts_order = ['TESTE1', 'TESTE2', 'TESTE3']
@@ -47,6 +47,9 @@ for account in accounts_order:
         api_secret=api_secret,
         # testnet=True  # Descomente esta linha se estiver usando a Testnet
     )
+
+    # Logar os métodos disponíveis na sessão (para depuração)
+    logging.info(f"Métodos disponíveis para a sessão {account}: {dir(session)}")
 
     # Armazenar a sessão no dicionário
     api_sessions[account] = session
@@ -81,12 +84,13 @@ def write_error_to_csv(account_name, code, message):
 def get_usdt_balance(session, account_name):
     try:
         response = session.get_wallet_balance(accountType='UNIFIED', coin='USDT')
+        logging.debug(f"Resposta get_wallet_balance para {account_name}: {response}")  # Log detalhado
         if response['retCode'] == 0:
             coin_list = response['result']['list'][0]['coin']
             for coin in coin_list:
                 if coin['coin'] == 'USDT':
-                    usdt_balance = float(coin['walletBalance'])
-                    return usdt_balance
+                    available_balance = float(coin.get('availableBalance', 0.0))  # Ajuste conforme a resposta real
+                    return available_balance
             # Se USDT não for encontrado
             message = "USDT não encontrado na lista de moedas."
             logging.error(f"Conta {account_name}: {message}")
@@ -241,7 +245,7 @@ def close_position(session, position, account_name):
             order_id = order['result']['orderId']
 
             # Aguardar brevemente para garantir que os detalhes da execução estejam disponíveis
-            time.sleep(0.1)
+            time.sleep(0.2)  # Reduzido para acelerar o processo
 
             # Obter detalhes da execução usando get_executions
             executions = session.get_executions(
@@ -284,37 +288,53 @@ def close_position(session, position, account_name):
 
 def open_position(session, action, account_name, symbol='BTCUSDT', leverage=1):
     try:
-        balance_percentage = 0.98  # Sempre usar 98% do saldo
+        # Definir as porcentagens para cada tentativa
+        balance_percentage_initial = 0.98    # 98% na primeira tentativa
+        balance_percentage_second = 0.02     # 2% na segunda tentativa
+        balance_percentage_third = 0.0004    # 0.04% na terceira tentativa
+
+        # Lista de porcentagens a serem usadas em cada tentativa
+        balance_percentages = [balance_percentage_initial, balance_percentage_second, balance_percentage_third]
+
+        # Definir o lado da ordem
         side = 'Buy' if action == 'long' else 'Sell'
 
         successful_orders = []  # Lista para armazenar ordens bem-sucedidas
         errors_occurred = False
 
-        # Tentar executar a ordem 3 vezes
-        for attempt in range(1, 4):
-            # Obter o saldo atual
-            usdt_balance = get_usdt_balance(session, account_name)
-            price = get_current_price(symbol)
-            if price == 0.0:
-                message = "Preço inválido. Abortando operação."
-                logging.error(f"Conta {account_name}: {message}")
-                write_error_to_csv(account_name, 'PriceError', message)
-                errors_occurred = True
-                break  # Abort further attempts
+        # Obter o saldo disponível ajustado
+        usdt_balance = get_usdt_balance(session, account_name)
+        if usdt_balance == 0.0:
+            message = "Saldo USDT zero ou inválido. Abortando operação."
+            logging.error(f"Conta {account_name}: {message}")
+            write_error_to_csv(account_name, 'ZeroBalance', message)
+            return None
 
-            # Calcular a quantidade
-            adjusted_balance = usdt_balance * balance_percentage
-            qty = adjusted_balance * leverage / price
+        logging.info(f"Conta {account_name}: Saldo disponível para operações: {usdt_balance} USDT")
+
+        # Obter o preço atual do símbolo
+        price = get_current_price(symbol)
+        if price == 0.0:
+            message = "Preço inválido. Abortando operação."
+            logging.error(f"Conta {account_name}: {message}")
+            write_error_to_csv(account_name, 'PriceError', message)
+            return None
+
+        for attempt, percentage in enumerate(balance_percentages, start=1):
+            # Calcular a quantidade com base na porcentagem definida
+            qty = usdt_balance * percentage * leverage / price
             qty = np.floor(qty * 1000) / 1000  # Ajustar para 3 casas decimais
-            logging.info(f"Conta {account_name}: quantity calculado na tentativa {attempt}: {qty}")
+
+            logging.info(f"Conta {account_name}: Quantidade calculada na tentativa {attempt}: {qty} BTC")
+
             # Verificar se qty é menor que 0.001 BTC (mínimo da Bybit)
             if qty < 0.001:
                 message = f"Quantidade calculada ({qty}) é menor que o mínimo permitido (0.001 BTC). Abortando tentativa {attempt}."
                 logging.error(f"Conta {account_name}: {message}")
                 write_error_to_csv(account_name, 'MinQtyError', message)
-                errors_occurred = True
-                break  # Abort further attempts
+                continue  # Pular para a próxima tentativa
 
+            # Colocar a ordem de mercado
             order = session.place_order(
                 category='linear',
                 symbol=symbol,
@@ -324,14 +344,15 @@ def open_position(session, action, account_name, symbol='BTCUSDT', leverage=1):
                 timeInForce='GTC',
                 reduceOnly=False
             )
+
             if order['retCode'] == 0:
-                logging.info(f"Conta {account_name}: Ordem de {side} executada com sucesso na tentativa {attempt}. Qty: {qty}")
+                logging.info(f"Conta {account_name}: Ordem de {side} executada com sucesso na tentativa {attempt}. Qty: {qty} BTC")
 
                 # Obter o ID da ordem
                 order_id = order['result']['orderId']
 
                 # Aguardar brevemente para garantir que os detalhes da execução estejam disponíveis
-                time.sleep(0.5)
+                time.sleep(0.2)  # Reduzido para acelerar o processo
 
                 # Obter detalhes da execução usando get_executions
                 executions = session.get_executions(
@@ -348,13 +369,13 @@ def open_position(session, action, account_name, symbol='BTCUSDT', leverage=1):
                             'qty': exec_qty,
                             'price': exec_price
                         })
+                        logging.info(f"Conta {account_name}: Execução {exec_qty} BTC a {exec_price} USDT")
                 else:
                     message = f"Erro ao obter detalhes da execução: {executions['retMsg']}"
                     logging.error(f"Conta {account_name}: {message}")
-                    write_error_to_csv(account_name, executions['retCode'], message)
+                    write_error_to_csv(account_name, executions['retCode'], executions['retMsg'])
                     errors_occurred = True
                     break  # Abort further attempts
-
             else:
                 message = f"Erro ao executar ordem na tentativa {attempt}: {order['retMsg']} (retCode {order['retCode']})"
                 logging.error(f"Conta {account_name}: {message}")
@@ -368,15 +389,15 @@ def open_position(session, action, account_name, symbol='BTCUSDT', leverage=1):
 
         if successful_orders:
             # Calcular o preço médio ponderado
-            total_qty = sum([o['qty'] for o in successful_orders])
-            if total_qty > 0:
-                weighted_avg_price = sum([o['qty'] * o['price'] for o in successful_orders]) / total_qty
+            total_qty_executed = sum([o['qty'] for o in successful_orders])
+            if total_qty_executed > 0:
+                weighted_avg_price = sum([o['qty'] * o['price'] for o in successful_orders]) / total_qty_executed
             else:
                 weighted_avg_price = 0.0
-            logging.info(f"Conta {account_name}: Preço médio ponderado: {weighted_avg_price:.2f}, Quantidade total: {total_qty}")
+            logging.info(f"Conta {account_name}: Preço médio ponderado: {weighted_avg_price:.2f} USDT, Quantidade total: {total_qty_executed} BTC")
             return {
                 'average_price': weighted_avg_price,
-                'total_qty': total_qty
+                'total_qty': total_qty_executed
             }
         else:
             message = "Nenhuma ordem executada com sucesso."
@@ -389,6 +410,7 @@ def open_position(session, action, account_name, symbol='BTCUSDT', leverage=1):
         logging.error(f"Conta {account_name}: {message}")
         write_error_to_csv(account_name, 'Exception', str(e))
         return None  # Indica falha
+
 
 def write_to_csv(data_row):
     # Definir os nomes das colunas
