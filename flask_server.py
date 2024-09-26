@@ -18,7 +18,7 @@ logging.basicConfig(level=logging.INFO,
 load_dotenv(find_dotenv())
 
 # Chave secreta para autenticação de Webhook
-SECRET_KEY = os.getenv('SECRET_KEY', '1221')  # Padrão para '1221' se não estiver definido
+SECRET_KEY = os.getenv('SECRET_KEY', '2112')  # Padrão para '1221' se não estiver definido
 
 # Lista de contas na ordem desejada
 accounts_order = ['TESTE1', 'TESTE2', 'TESTE3']
