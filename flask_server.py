@@ -48,8 +48,8 @@ for account in accounts_order:
         # testnet=True  # Descomente esta linha se estiver usando a Testnet
     )
 
-    # Logar os métodos disponíveis na sessão (para depuração)
-    logging.info(f"Métodos disponíveis para a sessão {account}: {dir(session)}")
+    # Remover o log de métodos disponíveis
+    # logging.info(f"Métodos disponíveis para a sessão {account}: {dir(session)}")
 
     # Armazenar a sessão no dicionário
     api_sessions[account] = session
@@ -116,7 +116,6 @@ def get_usdt_balance(session, account_name):
         write_error_to_csv(account_name, 'Exception', str(e))
         return 0.0
 
-
 def get_current_price(symbol='BTCUSDT'):
     try:
         # Usamos a sessão da primeira conta apenas para obter o preço
@@ -134,43 +133,6 @@ def get_current_price(symbol='BTCUSDT'):
     except Exception as e:
         logging.error(f"Erro ao obter preço: {e}")
         return 0.0
-
-def get_coin_balance_specific(session, account_name):
-    try:
-        response = session.get_coin_balance(coin='USDT')
-        logging.debug(f"Resposta get_coin_balance para {account_name}: {response}")  # Log detalhado
-        if response['retCode'] == 0:
-            available_balance = float(response['result']['availableBalance'])
-            logging.debug(f"Saldo disponível USDT para {account_name}: {available_balance}")
-            return available_balance
-        else:
-            message = f"Erro ao obter saldo de USDT: {response.get('retMsg', 'Mensagem não disponível')}"
-            logging.error(f"Conta {account_name}: {message}")
-            write_error_to_csv(account_name, response.get('retCode', 'N/A'), response.get('retMsg', 'N/A'))
-            return 0.0
-    except Exception as e:
-        message = f"Erro ao obter saldo de USDT: {e}"
-        logging.error(f"Conta {account_name}: {message}")
-        write_error_to_csv(account_name, 'Exception', str(e))
-        return 0.0
-
-def get_order_executions(session, symbol, order_id):
-    try:
-        response = session.get_executions(
-            category='linear',
-            symbol=symbol,
-            orderId=order_id
-        )
-        logging.debug(f"Resposta get_executions para ordem {order_id} na conta: {response}")  # Log detalhado
-        if response['retCode'] == 0 and 'list' in response['result']:
-            return response['result']['list']
-        else:
-            message = f"Erro ao obter execuções: {response.get('retMsg', 'Mensagem não disponível')}"
-            logging.error(message)
-            return []
-    except Exception as e:
-        logging.error(f"Erro ao obter execuções: {e}")
-        return []
 
 def get_open_positions_info(session, account_name):
     try:
@@ -379,7 +341,8 @@ def open_position(session, action, account_name, symbol='BTCUSDT', leverage=1):
                 message = f"Quantidade calculada ({qty}) é menor que o mínimo permitido (0.001 BTC). Abortando tentativa {attempt}."
                 logging.error(f"Conta {account_name}: {message}")
                 write_error_to_csv(account_name, 'MinQtyError', message)
-                continue  # Pular para a próxima tentativa
+                # Interromper o loop se a quantidade for menor que o mínimo
+                break  # Não prosseguir com tentativas adicionais
 
             try:
                 # Colocar a ordem de mercado
@@ -394,7 +357,8 @@ def open_position(session, action, account_name, symbol='BTCUSDT', leverage=1):
                 )
 
                 if order['retCode'] == 0:
-                    logging.info(f"Conta {account_name}: Ordem de {side} executada com sucesso na tentativa {attempt}. Qty: {qty} BTC")
+                    # Remover a mensagem redundante
+                    # logging.info(f"Conta {account_name}: Ordem de {side} executada com sucesso na tentativa {attempt}. Qty: {qty} BTC")
 
                     # Obter o ID da ordem
                     order_id = order['result']['orderId']
@@ -466,7 +430,6 @@ def open_position(session, action, account_name, symbol='BTCUSDT', leverage=1):
         logging.error(f"Conta {account_name}: {message}")
         write_error_to_csv(account_name, 'Exception', str(e))
         return None  # Indica falha
-
 
 def write_to_csv(data_row):
     # Definir os nomes das colunas
