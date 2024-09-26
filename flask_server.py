@@ -162,13 +162,14 @@ def get_open_positions_info(session, account_name):
         }
 
 # Após inicializar as sessões, obter e registrar o saldo e posições de cada conta
+btc_price = get_current_price('BTCUSDT')  # Obter uma única vez para otimização
 for account in accounts_order:
     session = api_sessions[account]
     balance = get_usdt_balance(session, account)
     positions_info = get_open_positions_info(session, account)
     num_open_positions = positions_info['num_open_positions']
     total_size_btc = positions_info['total_size_btc']
-    total_value_usdt = positions_info['total_value_usdt']
+    total_value_usdt = total_size_btc * btc_price
 
     # Formatar os valores para exibição
     balance_formatted = f"{balance:,.2f}"
@@ -222,7 +223,7 @@ def close_position(session, position, account_name):
             message = "Lado da posição desconhecido."
             logging.warning(f"Conta {account_name}: {message}")
             write_error_to_csv(account_name, 'UnknownSide', message)
-            return None  # Indicate failure
+            return None  # Indica falha
 
         order = session.place_order(
             category='linear',
@@ -242,8 +243,8 @@ def close_position(session, position, account_name):
             # Aguardar brevemente para garantir que os detalhes da execução estejam disponíveis
             time.sleep(0.5)
 
-            # Obter detalhes da execução usando get_execution_list
-            executions = session.get_execution_list(
+            # Obter detalhes da execução usando get_executions
+            executions = session.get_executions(
                 category='linear',
                 symbol=position['symbol'],
                 orderId=order_id
@@ -269,17 +270,17 @@ def close_position(session, position, account_name):
                 message = f"Erro ao obter detalhes da execução: {executions['retMsg']}"
                 logging.error(f"Conta {account_name}: {message}")
                 write_error_to_csv(account_name, executions['retCode'], message)
-                return None  # Indicate failure
+                return None  # Indica falha
         else:
             message = f"Erro ao fechar posição: {order['retMsg']}"
             logging.error(f"Conta {account_name}: {message}")
             write_error_to_csv(account_name, order['retCode'], order['retMsg'])
-            return None  # Indicate failure
+            return None  # Indica falha
     except Exception as e:
         message = f"Erro ao fechar posição: {e}"
         logging.error(f"Conta {account_name}: {message}")
         write_error_to_csv(account_name, 'Exception', str(e))
-        return None  # Indicate failure
+        return None  # Indica falha
 
 def open_position(session, action, account_name, symbol='BTCUSDT', leverage=1):
     try:
@@ -332,8 +333,8 @@ def open_position(session, action, account_name, symbol='BTCUSDT', leverage=1):
                 # Aguardar brevemente para garantir que os detalhes da execução estejam disponíveis
                 time.sleep(0.5)
 
-                # Obter detalhes da execução usando get_execution_list
-                executions = session.get_execution_list(
+                # Obter detalhes da execução usando get_executions
+                executions = session.get_executions(
                     category='linear',
                     symbol=symbol,
                     orderId=order_id
@@ -482,13 +483,13 @@ def webhook():
                         outcome_exit = 0.0
 
                     # Registrar o exit no CSV
-                    action_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())
+                    action_time_str = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())
                     account_end_time = time.time()
                     latency = account_end_time - account_start_time
                     data_row_exit = {
                         'api_owner': account,
                         'alert_time': alert_time,
-                        'action_time': action_time,
+                        'action_time': action_time_str,
                         'type': 'exit',
                         'btc_price': close_result['average_price'],
                         'balance': usdt_balance_after_exit,
@@ -516,13 +517,13 @@ def webhook():
                         account_data[account]['entry_price'] = result['average_price']
 
                         # Registrar a nova entrada no CSV
-                        action_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())
+                        action_time_str = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())
                         account_end_time = time.time()
                         latency = account_end_time - account_start_time
                         data_row_entry = {
                             'api_owner': account,
                             'alert_time': alert_time,
-                            'action_time': action_time,
+                            'action_time': action_time_str,
                             'type': 'long',
                             'btc_price': result['average_price'],
                             'balance': usdt_balance_after_entry,
@@ -554,13 +555,13 @@ def webhook():
                     account_data[account]['entry_price'] = result['average_price']
 
                     # Registrar a nova entrada no CSV
-                    action_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())
+                    action_time_str = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())
                     account_end_time = time.time()
                     latency = account_end_time - account_start_time
                     data_row_entry = {
                         'api_owner': account,
                         'alert_time': alert_time,
-                        'action_time': action_time,
+                        'action_time': action_time_str,
                         'type': 'long',
                         'btc_price': result['average_price'],
                         'balance': usdt_balance_after_entry,
@@ -598,13 +599,13 @@ def webhook():
                         outcome_exit = 0.0
 
                     # Registrar o exit no CSV
-                    action_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())
+                    action_time_str = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())
                     account_end_time = time.time()
                     latency = account_end_time - account_start_time
                     data_row_exit = {
                         'api_owner': account,
                         'alert_time': alert_time,
-                        'action_time': action_time,
+                        'action_time': action_time_str,
                         'type': 'exit',
                         'btc_price': close_result['average_price'],
                         'balance': usdt_balance_after_exit,
@@ -632,13 +633,13 @@ def webhook():
                         account_data[account]['entry_price'] = result['average_price']
 
                         # Registrar a nova entrada no CSV
-                        action_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())
+                        action_time_str = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())
                         account_end_time = time.time()
                         latency = account_end_time - account_start_time
                         data_row_entry = {
                             'api_owner': account,
                             'alert_time': alert_time,
-                            'action_time': action_time,
+                            'action_time': action_time_str,
                             'type': 'short',
                             'btc_price': result['average_price'],
                             'balance': usdt_balance_after_entry,
@@ -670,13 +671,13 @@ def webhook():
                     account_data[account]['entry_price'] = result['average_price']
 
                     # Registrar a nova entrada no CSV
-                    action_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())
+                    action_time_str = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())
                     account_end_time = time.time()
                     latency = account_end_time - account_start_time
                     data_row_entry = {
                         'api_owner': account,
                         'alert_time': alert_time,
-                        'action_time': action_time,
+                        'action_time': action_time_str,
                         'type': 'short',
                         'btc_price': result['average_price'],
                         'balance': usdt_balance_after_entry,
@@ -709,13 +710,13 @@ def webhook():
                         outcome = 0.0
 
                     # Registrar o exit no CSV
-                    action_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())
+                    action_time_str = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())
                     account_end_time = time.time()
                     latency = account_end_time - account_start_time
                     data_row_exit = {
                         'api_owner': account,
                         'alert_time': alert_time,
-                        'action_time': action_time,
+                        'action_time': action_time_str,
                         'type': 'exit',
                         'btc_price': close_result['average_price'],
                         'balance': usdt_balance_after_exit,
