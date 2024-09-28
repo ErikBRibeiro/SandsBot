@@ -424,7 +424,7 @@ def write_to_csv(data_row):
         logging.error(f"Erro ao escrever no arquivo CSV {csv_file_path}: {e}")
 
 # Funções para obter e salvar os históricos
-def get_order_history(session, account_name, symbol='BTCUSDT', limit=30):
+def get_order_history(session, account_name, symbol='BTCUSDT', limit=100):
     try:
         response = session.get_order_history(
             category='linear',
@@ -446,7 +446,7 @@ def get_order_history(session, account_name, symbol='BTCUSDT', limit=30):
         write_error_to_csv(account_name, 'Exception', str(e))
         return []
 
-def get_trade_history(session, account_name, symbol='BTCUSDT', limit=30):
+def get_trade_history(session, account_name, symbol='BTCUSDT', limit=100):
     try:
         response = session.get_executions(
             category='linear',
@@ -468,7 +468,7 @@ def get_trade_history(session, account_name, symbol='BTCUSDT', limit=30):
         write_error_to_csv(account_name, 'Exception', str(e))
         return []
 
-def get_closed_pnl(session, account_name, symbol='BTCUSDT', limit=30):
+def get_closed_pnl(session, account_name, symbol='BTCUSDT', limit=100):
     try:
         response = session.get_closed_pnl(
             category='linear',
@@ -533,17 +533,17 @@ for account in accounts_order:
                  f"(~{total_value_usdt_formatted} USDT)")
 
     # Obter e salvar o histórico de ordens
-    orders = get_order_history(session, account, symbol='BTCUSDT', limit=30)
+    orders = get_order_history(session, account, symbol='BTCUSDT', limit=100)
     if orders:
         save_history_to_csv(orders, order_history_csv, account, 'order_history')
 
     # Obter e salvar o histórico de negociações
-    trades = get_trade_history(session, account, symbol='BTCUSDT', limit=30)
+    trades = get_trade_history(session, account, symbol='BTCUSDT', limit=100)
     if trades:
         save_history_to_csv(trades, trade_history_api_csv, account, 'trade_history_api')
 
     # Obter e salvar o PnL fechado
-    closed_positions = get_closed_pnl(session, account, symbol='BTCUSDT', limit=30)
+    closed_positions = get_closed_pnl(session, account, symbol='BTCUSDT', limit=100)
     if closed_positions:
         save_history_to_csv(closed_positions, closed_pnl_csv, account, 'closed_pnl')
 
