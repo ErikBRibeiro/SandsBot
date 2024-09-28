@@ -1,5 +1,3 @@
-
-
 from flask import Flask, request, jsonify
 from pybit.unified_trading import HTTP
 import time
@@ -22,7 +20,6 @@ load_dotenv(find_dotenv())
 # Chave secreta para autenticação de Webhook
 SECRET_KEY = os.getenv('SECRET_KEY', '1221')  # Padrão para '1221' se não estiver definido
 
-
 accounts_order = ['FERNANDO', 'PABLO', 'HAMUCHY', 'ZE', 'NATAN', 'BRUNO', 'ERIK']
 
 # Dicionário para armazenar as sessões da API e dados da conta
@@ -32,6 +29,10 @@ account_data = {}
 # Caminhos para salvar os arquivos CSV
 csv_file_path = '/app/data/trade_history.csv'
 error_csv_path = '/app/data/errors_history.csv'
+order_history_csv = '/app/data/order_history.csv'
+trade_history_csv = '/app/data/trade_history_api.csv'  # Renomeado para evitar conflito
+closed_pnl_csv = '/app/data/closed_pnl.csv'
+wallet_fund_records_csv = '/app/data/wallet_fund_records.csv'
 
 # Criar sessões da API para cada conta e inicializar dados
 for account in accounts_order:
@@ -49,9 +50,6 @@ for account in accounts_order:
         api_secret=api_secret,
         # testnet=True  # Descomente esta linha se estiver usando a Testnet
     )
-
-    # Remover o log de métodos disponíveis
-    # logging.info(f"Métodos disponíveis para a sessão {account}: {dir(session)}")
 
     # Armazenar a sessão no dicionário
     api_sessions[account] = session
@@ -86,7 +84,6 @@ def write_error_to_csv(account_name, code, message):
 def get_usdt_balance(session, account_name):
     try:
         response = session.get_wallet_balance(accountType='UNIFIED')
-        # logging.debug(f"Resposta get_wallet_balance para {account_name}: {response}")
         if response['retCode'] == 0:
             if 'result' in response and 'list' in response['result']:
                 data_list = response['result']['list']
@@ -176,26 +173,6 @@ def get_open_positions_info(session, account_name):
             'total_size_btc': 0.0,
             'total_value_usdt': 0.0
         }
-
-# Após inicializar as sessões, obter e registrar o saldo e posições de cada conta
-btc_price = get_current_price('BTCUSDT')  # Obter uma única vez para otimização
-for account in accounts_order:
-    session = api_sessions[account]
-    balance = get_usdt_balance(session, account)
-    positions_info = get_open_positions_info(session, account)
-    num_open_positions = positions_info['num_open_positions']
-    total_size_btc = positions_info['total_size_btc']
-    total_value_usdt = total_size_btc * btc_price
-
-    # Formatar os valores para exibição
-    balance_formatted = f"{balance:,.2f}"
-    total_size_btc_formatted = f"{total_size_btc:,.6f}"
-    total_value_usdt_formatted = f"{total_value_usdt:,.2f}"
-
-    logging.info(f"Conta {account}: Saldo USDT no Unified: {balance_formatted} USDT, "
-                 f"Contratos abertos: {num_open_positions}, "
-                 f"Valor total dos contratos abertos: {total_size_btc_formatted} BTC "
-                 f"(~{total_value_usdt_formatted} USDT)")
 
 def calculate_qty(usdt_balance, price, leverage=1, balance_percentage=0.98):
     if price == 0:
@@ -360,9 +337,6 @@ def open_position(session, action, account_name, symbol='BTCUSDT', leverage=1):
                 )
 
                 if order['retCode'] == 0:
-                    # Remover a mensagem redundante
-                    # logging.info(f"Conta {account_name}: Ordem de {side} executada com sucesso na tentativa {attempt}. Qty: {qty} BTC")
-
                     # Obter o ID da ordem
                     order_id = order['result']['orderId']
 
@@ -457,6 +431,158 @@ def write_to_csv(data_row):
         df_combined.to_csv(csv_file_path, index=False)
     except Exception as e:
         logging.error(f"Erro ao escrever no arquivo CSV: {e}")
+
+# Funções para obter e salvar os históricos
+def get_order_history(session, account_name, symbol='BTCUSDT', limit=30):
+    try:
+        response = session.get_order_history(
+            category='linear',
+            symbol=symbol,
+            limit=limit
+        )
+        if response['retCode'] == 0:
+            orders = response['result']['list']
+            logging.info(f"Conta {account_name}: Histórico de ordens obtido com sucesso.")
+            return orders
+        else:
+            message = f"Erro ao obter histórico de ordens: {response['retMsg']}"
+            logging.error(f"Conta {account_name}: {message}")
+            write_error_to_csv(account_name, response['retCode'], message)
+            return []
+    except Exception as e:
+        message = f"Erro ao obter histórico de ordens: {e}"
+        logging.error(f"Conta {account_name}: {message}")
+        write_error_to_csv(account_name, 'Exception', str(e))
+        return []
+
+def get_trade_history(session, account_name, symbol='BTCUSDT', limit=30):
+    try:
+        response = session.get_executions(
+            category='linear',
+            symbol=symbol,
+            limit=limit
+        )
+        if response['retCode'] == 0:
+            trades = response['result']['list']
+            logging.info(f"Conta {account_name}: Histórico de negociações obtido com sucesso.")
+            return trades
+        else:
+            message = f"Erro ao obter histórico de negociações: {response['retMsg']}"
+            logging.error(f"Conta {account_name}: {message}")
+            write_error_to_csv(account_name, response['retCode'], message)
+            return []
+    except Exception as e:
+        message = f"Erro ao obter histórico de negociações: {e}"
+        logging.error(f"Conta {account_name}: {message}")
+        write_error_to_csv(account_name, 'Exception', str(e))
+        return []
+
+def get_closed_pnl(session, account_name, symbol='BTCUSDT', limit=30):
+    try:
+        response = session.get_closed_pnl(
+            category='linear',
+            symbol=symbol,
+            limit=limit
+        )
+        if response['retCode'] == 0:
+            closed_positions = response['result']['list']
+            logging.info(f"Conta {account_name}: Histórico de PnL fechado obtido com sucesso.")
+            return closed_positions
+        else:
+            message = f"Erro ao obter PnL fechado: {response['retMsg']}"
+            logging.error(f"Conta {account_name}: {message}")
+            write_error_to_csv(account_name, response['retCode'], message)
+            return []
+    except Exception as e:
+        message = f"Erro ao obter PnL fechado: {e}"
+        logging.error(f"Conta {account_name}: {message}")
+        write_error_to_csv(account_name, 'Exception', str(e))
+        return []
+
+def get_wallet_fund_records(session, account_name, limit=30):
+    try:
+        response = session.get_wallet_fund_records(
+            accountType='UNIFIED',
+            limit=limit
+        )
+        if response['retCode'] == 0:
+            records = response['result']['list']
+            logging.info(f"Conta {account_name}: Registros de fundos da carteira obtidos com sucesso.")
+            return records
+        else:
+            message = f"Erro ao obter registros de fundos da carteira: {response['retMsg']}"
+            logging.error(f"Conta {account_name}: {message}")
+            write_error_to_csv(account_name, response['retCode'], message)
+            return []
+    except Exception as e:
+        message = f"Erro ao obter registros de fundos da carteira: {e}"
+        logging.error(f"Conta {account_name}: {message}")
+        write_error_to_csv(account_name, 'Exception', str(e))
+        return []
+
+def save_history_to_csv(data_list, csv_path, columns):
+    df_new = pd.DataFrame(data_list, columns=columns)
+    try:
+        if os.path.isfile(csv_path):
+            df_existing = pd.read_csv(csv_path)
+            df_combined = pd.concat([df_existing, df_new], ignore_index=True)
+        else:
+            df_combined = df_new
+        df_combined.to_csv(csv_path, index=False)
+    except Exception as e:
+        logging.error(f"Erro ao escrever no arquivo CSV {csv_path}: {e}")
+
+# Após inicializar as sessões, obter e registrar o saldo e posições de cada conta
+btc_price = get_current_price('BTCUSDT')  # Obter uma única vez para otimização
+for account in accounts_order:
+    session = api_sessions[account]
+    balance = get_usdt_balance(session, account)
+    positions_info = get_open_positions_info(session, account)
+    num_open_positions = positions_info['num_open_positions']
+    total_size_btc = positions_info['total_size_btc']
+    total_value_usdt = total_size_btc * btc_price
+
+    # Formatar os valores para exibição
+    balance_formatted = f"{balance:,.2f}"
+    total_size_btc_formatted = f"{total_size_btc:,.6f}"
+    total_value_usdt_formatted = f"{total_value_usdt:,.2f}"
+
+    logging.info(f"Conta {account}: Saldo USDT no Unified: {balance_formatted} USDT, "
+                 f"Contratos abertos: {num_open_positions}, "
+                 f"Valor total dos contratos abertos: {total_size_btc_formatted} BTC "
+                 f"(~{total_value_usdt_formatted} USDT)")
+
+    # Obter e salvar o histórico de ordens
+    orders = get_order_history(session, account, symbol='BTCUSDT', limit=30)
+    if orders:
+        for order in orders:
+            order['account'] = account  # Adicionar o nome da conta aos dados
+        columns_order = ['account'] + list(orders[0].keys())
+        save_history_to_csv(orders, order_history_csv, columns_order)
+
+    # Obter e salvar o histórico de negociações
+    trades = get_trade_history(session, account, symbol='BTCUSDT', limit=30)
+    if trades:
+        for trade in trades:
+            trade['account'] = account  # Adicionar o nome da conta aos dados
+        columns_trade = ['account'] + list(trades[0].keys())
+        save_history_to_csv(trades, trade_history_csv, columns_trade)
+
+    # Obter e salvar o PnL fechado
+    closed_positions = get_closed_pnl(session, account, symbol='BTCUSDT', limit=30)
+    if closed_positions:
+        for pos in closed_positions:
+            pos['account'] = account  # Adicionar o nome da conta aos dados
+        columns_closed_pnl = ['account'] + list(closed_positions[0].keys())
+        save_history_to_csv(closed_positions, closed_pnl_csv, columns_closed_pnl)
+
+    # Obter e salvar os registros de fundos da carteira
+    fund_records = get_wallet_fund_records(session, account, limit=30)
+    if fund_records:
+        for record in fund_records:
+            record['account'] = account  # Adicionar o nome da conta aos dados
+        columns_fund_records = ['account'] + list(fund_records[0].keys())
+        save_history_to_csv(fund_records, wallet_fund_records_csv, columns_fund_records)
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
