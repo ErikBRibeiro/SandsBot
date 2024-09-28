@@ -27,12 +27,12 @@ api_sessions = {}
 account_data = {}
 
 # Caminhos para salvar os arquivos CSV
-csv_file_path = '/app/data/trade_history.csv'
-error_csv_path = '/app/data/errors_history.csv'
 order_history_csv = '/app/data/order_history.csv'
-trade_history_csv = '/app/data/trade_history_api.csv'  # Renomeado para evitar conflito
+trade_history_api_csv = '/app/data/trade_history_api.csv'  # Renomeado para evitar conflito
 closed_pnl_csv = '/app/data/closed_pnl.csv'
-wallet_fund_records_csv = '/app/data/wallet_fund_records.csv'
+# Removido wallet_fund_records_csv por causa do erro de método inexistente
+error_csv_path = '/app/data/errors_history.csv'
+trade_history_csv = '/app/data/trade_history.csv'  # Preservar o nome original se necessário
 
 # Criar sessões da API para cada conta e inicializar dados
 for account in accounts_order:
@@ -70,14 +70,11 @@ def write_error_to_csv(account_name, code, message):
         'timestamp': time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())
     }
     df_new = pd.DataFrame([data_row], columns=columns)
-    # Verificar se o arquivo CSV já existe
-    if os.path.isfile(error_csv_path):
-        df_existing = pd.read_csv(error_csv_path)
-        df_combined = pd.concat([df_existing, df_new], ignore_index=True)
-    else:
-        df_combined = df_new
     try:
-        df_combined.to_csv(error_csv_path, index=False)
+        if os.path.isfile(error_csv_path):
+            df_new.to_csv(error_csv_path, mode='a', header=False, index=False)
+        else:
+            df_new.to_csv(error_csv_path, mode='w', header=True, index=False)
     except Exception as e:
         logging.error(f"Erro ao escrever no arquivo de erros CSV: {e}")
 
@@ -416,21 +413,15 @@ def write_to_csv(data_row):
     # Criar um DataFrame com a linha de dados
     df_new = pd.DataFrame([data_row], columns=columns)
 
-    # Verificar se o arquivo CSV já existe
-    if os.path.isfile(csv_file_path):
-        # Ler o arquivo existente
-        df_existing = pd.read_csv(csv_file_path)
-        # Concatenar o novo registro
-        df_combined = pd.concat([df_existing, df_new], ignore_index=True)
-    else:
-        # Se não existe, o DataFrame combinado é apenas o novo registro
-        df_combined = df_new
-
     try:
-        # Salvar o DataFrame combinado no arquivo CSV
-        df_combined.to_csv(csv_file_path, index=False)
+        if os.path.isfile(csv_file_path):
+            # Adicionar sem cabeçalho
+            df_new.to_csv(csv_file_path, mode='a', header=False, index=False)
+        else:
+            # Criar com cabeçalho
+            df_new.to_csv(csv_file_path, mode='w', header=True, index=False)
     except Exception as e:
-        logging.error(f"Erro ao escrever no arquivo CSV: {e}")
+        logging.error(f"Erro ao escrever no arquivo CSV {csv_file_path}: {e}")
 
 # Funções para obter e salvar os históricos
 def get_order_history(session, account_name, symbol='BTCUSDT', limit=30):
@@ -499,48 +490,37 @@ def get_closed_pnl(session, account_name, symbol='BTCUSDT', limit=30):
         write_error_to_csv(account_name, 'Exception', str(e))
         return []
 
-def get_wallet_fund_records(session, account_name, limit=30):
-    try:
-        response = session.get_wallet_fund_records(
-            accountType='UNIFIED',
-            limit=limit
-        )
-        if response['retCode'] == 0:
-            records = response['result']['list']
-            logging.info(f"Conta {account_name}: Registros de fundos da carteira obtidos com sucesso.")
-            return records
-        else:
-            message = f"Erro ao obter registros de fundos da carteira: {response['retMsg']}"
-            logging.error(f"Conta {account_name}: {message}")
-            write_error_to_csv(account_name, response['retCode'], message)
-            return []
-    except Exception as e:
-        message = f"Erro ao obter registros de fundos da carteira: {e}"
-        logging.error(f"Conta {account_name}: {message}")
-        write_error_to_csv(account_name, 'Exception', str(e))
-        return []
+# Removido a função get_wallet_fund_records por causa do erro de método inexistente
 
-def save_history_to_csv(data_list, csv_path, columns):
-    df_new = pd.DataFrame(data_list, columns=columns)
+def save_history_to_csv(data_list, csv_path, account_name, history_type):
+    if not data_list:
+        return
+    # Adicionar a coluna 'account' a cada registro
+    for record in data_list:
+        record['account'] = account_name
+    # Criar um DataFrame
+    df_new = pd.DataFrame(data_list)
     try:
         if os.path.isfile(csv_path):
-            df_existing = pd.read_csv(csv_path)
-            df_combined = pd.concat([df_existing, df_new], ignore_index=True)
+            # Adicionar sem cabeçalho
+            df_new.to_csv(csv_path, mode='a', header=False, index=False)
         else:
-            df_combined = df_new
-        df_combined.to_csv(csv_path, index=False)
+            # Criar com cabeçalho
+            df_new.to_csv(csv_path, mode='w', header=True, index=False)
     except Exception as e:
         logging.error(f"Erro ao escrever no arquivo CSV {csv_path}: {e}")
 
 # Após inicializar as sessões, obter e registrar o saldo e posições de cada conta
 btc_price = get_current_price('BTCUSDT')  # Obter uma única vez para otimização
+csv_file_path = '/app/data/trade_history.csv'  # Certifique-se de que este caminho é correto
+
 for account in accounts_order:
     session = api_sessions[account]
     balance = get_usdt_balance(session, account)
     positions_info = get_open_positions_info(session, account)
     num_open_positions = positions_info['num_open_positions']
     total_size_btc = positions_info['total_size_btc']
-    total_value_usdt = total_size_btc * btc_price
+    total_value_usdt = positions_info['total_value_usdt']
 
     # Formatar os valores para exibição
     balance_formatted = f"{balance:,.2f}"
@@ -555,34 +535,17 @@ for account in accounts_order:
     # Obter e salvar o histórico de ordens
     orders = get_order_history(session, account, symbol='BTCUSDT', limit=30)
     if orders:
-        for order in orders:
-            order['account'] = account  # Adicionar o nome da conta aos dados
-        columns_order = ['account'] + list(orders[0].keys())
-        save_history_to_csv(orders, order_history_csv, columns_order)
+        save_history_to_csv(orders, order_history_csv, account, 'order_history')
 
     # Obter e salvar o histórico de negociações
     trades = get_trade_history(session, account, symbol='BTCUSDT', limit=30)
     if trades:
-        for trade in trades:
-            trade['account'] = account  # Adicionar o nome da conta aos dados
-        columns_trade = ['account'] + list(trades[0].keys())
-        save_history_to_csv(trades, trade_history_csv, columns_trade)
+        save_history_to_csv(trades, trade_history_api_csv, account, 'trade_history_api')
 
     # Obter e salvar o PnL fechado
     closed_positions = get_closed_pnl(session, account, symbol='BTCUSDT', limit=30)
     if closed_positions:
-        for pos in closed_positions:
-            pos['account'] = account  # Adicionar o nome da conta aos dados
-        columns_closed_pnl = ['account'] + list(closed_positions[0].keys())
-        save_history_to_csv(closed_positions, closed_pnl_csv, columns_closed_pnl)
-
-    # Obter e salvar os registros de fundos da carteira
-    fund_records = get_wallet_fund_records(session, account, limit=30)
-    if fund_records:
-        for record in fund_records:
-            record['account'] = account  # Adicionar o nome da conta aos dados
-        columns_fund_records = ['account'] + list(fund_records[0].keys())
-        save_history_to_csv(fund_records, wallet_fund_records_csv, columns_fund_records)
+        save_history_to_csv(closed_positions, closed_pnl_csv, account, 'closed_pnl')
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
