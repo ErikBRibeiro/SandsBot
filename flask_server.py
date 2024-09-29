@@ -275,12 +275,13 @@ def close_position(session, position, account_name):
 def open_position(session, action, account_name, symbol='BTCUSDT', leverage=1):
     try:
         # Definir as porcentagens para cada tentativa
+        balance_percentage_full = 1
         balance_percentage_initial = 0.98    # 98% na primeira tentativa
         balance_percentage_second = 0.02     # 2% na segunda tentativa
         balance_percentage_third = 0.0004    # 0.04% na terceira tentativa
 
         # Lista de porcentagens a serem usadas em cada tentativa
-        balance_percentages = [balance_percentage_initial, balance_percentage_second, balance_percentage_third]
+        balance_percentages = [balance_percentage_full, balance_percentage_initial, balance_percentage_second, balance_percentage_third]
 
         # Definir o lado da ordem
         side = 'Buy' if action == 'long' else 'Sell'
