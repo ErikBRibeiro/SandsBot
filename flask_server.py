@@ -20,7 +20,7 @@ load_dotenv(find_dotenv())
 # Chave secreta para autenticação de Webhook
 SECRET_KEY = os.getenv('SECRET_KEY', '1221')  # Padrão para '1221' se não estiver definido
 
-accounts_order = ['FERNANDO', 'PABLO', 'HAMUCHY', 'ZE', 'NATAN', 'BRUNO', 'ERIK']
+accounts_order = ['FERNANDO', 'PABLO', 'HAMUCHY', 'ZE', 'NATAN', 'BRUNO']
 
 # Dicionário para armazenar as sessões da API e dados da conta
 api_sessions = {}
